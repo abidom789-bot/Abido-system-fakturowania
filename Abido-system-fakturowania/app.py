@@ -49,16 +49,13 @@ def list_pdfs_from_drive(service, folder_id):
 
 
 def download_pdf(service, file_id):
-    """Pobiera zawartosc pliku PDF z Google Drive jako bytes."""
     request = service.files().get_media(fileId=file_id)
     return request.execute()
 
 
 def extract_gross_amount(pdf_bytes):
     """
-    Wyciaga kwote brutto z tekstu PDF.
-    Szuka fraz takich jak: 'do zaplaty', 'razem brutto', 'kwota brutto', 'laczna kwota'.
-    Zwraca znaleziona kwote jako string lub '' jesli nie znaleziono.
+    Wyciaga kwote brutto z tekstu PDF i zwraca jako ujemna wartosc string.
     """
     patterns = [
         r"do\s+zap[lł]aty[^\d]*?([\d\s]+[,.][\d]{2})",
@@ -79,33 +76,83 @@ def extract_gross_amount(pdf_bytes):
             match = re.search(pattern, text_lower)
             if match:
                 amount = match.group(1).strip().replace(" ", "")
-                return amount
+                return f"-{amount}"
     except Exception:
         pass
     return ""
 
 
 def get_or_create_worksheet(spreadsheet, sheet_name):
-    """Zwraca arkusz o podanej nazwie lub tworzy go jesli nie istnieje."""
     try:
-        worksheet = spreadsheet.worksheet(sheet_name)
-        worksheet.clear()
+        return spreadsheet.worksheet(sheet_name)
     except gspread.exceptions.WorksheetNotFound:
-        worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=500, cols=5)
-    return worksheet
+        return spreadsheet.add_worksheet(title=sheet_name, rows=500, cols=5)
 
 
-def write_to_sheets(credentials, spreadsheet_id, files_data, sheet_name):
-    """Zapisuje dane do arkusza o nazwie sheet_name."""
+def read_existing_rows(worksheet):
+    """
+    Czyta istniejace dane z arkusza.
+    Zwraca slownik: nazwa_pliku -> {"brutto": str, "status": str, "row_index": int}
+    Pomija wiersz naglowkowy (wiersz 1).
+    """
+    all_rows = worksheet.get_all_values()
+    existing = {}
+    for i, row in enumerate(all_rows[1:], start=2):  # start=2 bo wiersz 1 to naglowek
+        if len(row) >= 1 and row[0]:
+            name = row[0]
+            brutto = row[1] if len(row) > 1 else ""
+            status = row[2] if len(row) > 2 else "0"
+            existing[name] = {"brutto": brutto, "status": status, "row_index": i}
+    return existing
+
+
+def sync_to_sheets(credentials, spreadsheet_id, drive_files_data, sheet_name):
+    """
+    Synchronizuje dane z Drive do arkusza z zachowaniem wierszy z C=1.
+
+    Logika:
+    - C=1 (zweryfikowane przez uzytkownika): wiersze NIETYKALANE
+    - C=0 (do weryfikacji): nadpisane nowym odczytem
+    - Nowe pliki: dodane na koniec z C=0
+    """
     client = gspread.authorize(credentials)
     spreadsheet = client.open_by_key(spreadsheet_id)
     worksheet = get_or_create_worksheet(spreadsheet, sheet_name)
 
-    worksheet.append_row(["Nazwa pliku", "Kwota brutto"])
-    rows = [[f["name"], f["brutto"]] for f in files_data]
-    if rows:
-        worksheet.append_rows(rows)
-    return len(rows)
+    # Sprawdz czy arkusz ma naglowek
+    first_row = worksheet.row_values(1)
+    if not first_row or first_row[0] != "Nazwa pliku":
+        worksheet.insert_row(["Nazwa pliku", "Kwota brutto", "Status"], index=1)
+
+    existing = read_existing_rows(worksheet)
+
+    # Buduj slownik nowych danych z Drive (nazwa -> brutto)
+    drive_data = {f["name"]: f["brutto"] for f in drive_files_data}
+
+    updates = []   # (row_index, brutto) — do nadpisania wierszy z C=0
+    new_rows = []  # nowe pliki nieobecne w arkuszu
+
+    for name, brutto in drive_data.items():
+        if name in existing:
+            if existing[name]["status"] == "1":
+                # Zweryfikowany — pomijamy
+                pass
+            else:
+                # C=0 — nadpisz kwote, status pozostaje 0
+                updates.append((existing[name]["row_index"], name, brutto))
+        else:
+            # Nowy plik — dodaj
+            new_rows.append([name, brutto, "0"])
+
+    # Zastosuj aktualizacje wierszy C=0
+    for row_index, name, brutto in updates:
+        worksheet.update(f"A{row_index}:C{row_index}", [[name, brutto, "0"]])
+
+    # Dodaj nowe wiersze
+    if new_rows:
+        worksheet.append_rows(new_rows)
+
+    return len(updates), len(new_rows)
 
 
 # ----------------------------------------------------------------
@@ -122,8 +169,8 @@ st.title("System Fakturowania")
 st.markdown("---")
 
 st.markdown(
-    "Wpisz nazwe podfolderu z fakturami, a aplikacja odczyta kwoty brutto z PDF "
-    "i zapisze je do odpowiedniego arkusza w Google Sheets."
+    "Wpisz nazwe podfolderu. Nowe faktury zostana dodane z C=0. "
+    "Wiersze z C=1 (zweryfikowane recznie) pozostana niezmienione."
 )
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -164,17 +211,25 @@ if run:
                     progress = st.progress(0, text="Analizuje faktury...")
                     files_data = []
                     for i, f in enumerate(files):
-                        progress.progress((i + 1) / len(files), text=f"Analizuje: {f['name']}")
+                        progress.progress(
+                            (i + 1) / len(files),
+                            text=f"Analizuje: {f['name']}"
+                        )
                         pdf_bytes = download_pdf(drive_service, f["id"])
                         brutto = extract_gross_amount(pdf_bytes)
                         files_data.append({"name": f["name"], "brutto": brutto})
 
                     progress.empty()
 
-                    with st.spinner("Zapisuje do Google Sheets..."):
-                        count = write_to_sheets(creds, SPREADSHEET_ID, files_data, name)
+                    with st.spinner("Synchronizuje z Google Sheets..."):
+                        updated, added = sync_to_sheets(
+                            creds, SPREADSHEET_ID, files_data, name
+                        )
 
-                    st.success(f"Gotowe! Zapisano {count} faktur w arkuszu '{name}'.")
+                    st.success(
+                        f"Gotowe! Zaktualizowano: {updated} | Dodano nowych: {added} | "
+                        f"Pominieto (C=1): {len(files) - updated - added}"
+                    )
                     st.dataframe(
                         [{"Nazwa pliku": d["name"], "Kwota brutto": d["brutto"]} for d in files_data],
                         use_container_width=True,
