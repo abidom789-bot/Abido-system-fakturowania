@@ -25,6 +25,20 @@ def get_credentials():
     return credentials
 
 
+def find_subfolder(credentials, parent_folder_id, subfolder_name):
+    """Szuka podfolderu o podanej nazwie wewnatrz folderu nadrzednego."""
+    service = build("drive", "v3", credentials=credentials)
+    query = (
+        f"'{parent_folder_id}' in parents "
+        f"and name = '{subfolder_name}' "
+        "and mimeType = 'application/vnd.google-apps.folder' "
+        "and trashed = false"
+    )
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    folders = results.get("files", [])
+    return folders[0] if folders else None
+
+
 def list_pdfs_from_drive(credentials, folder_id):
     """Zwraca liste nazw plikow PDF z podanego folderu Google Drive."""
     service = build("drive", "v3", credentials=credentials)
@@ -93,6 +107,10 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
+    subfolder_name = st.text_input(
+        "Nazwa podfolderu (np. 032026)",
+        placeholder="wpisz nazwe podfolderu...",
+    )
     run = st.button(
         "Zaczytaj faktury kosztowe do Google Sheets",
         use_container_width=True,
@@ -100,26 +118,34 @@ with col2:
     )
 
 if run:
-    if FOLDER_ID.startswith("WKLEJ") or SPREADSHEET_ID.startswith("WKLEJ"):
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu przed uruchomieniem.")
+    elif FOLDER_ID.startswith("WKLEJ") or SPREADSHEET_ID.startswith("WKLEJ"):
         st.error(
             "Uzupelnij zmienne FOLDER_ID oraz SPREADSHEET_ID w pliku app.py przed uruchomieniem."
         )
     else:
-        with st.spinner("Laczenie z Google..."):
+        with st.spinner(f"Szukam podfolderu '{subfolder_name}'..."):
             try:
                 creds = get_credentials()
-                files = list_pdfs_from_drive(creds, FOLDER_ID)
+                subfolder = find_subfolder(creds, FOLDER_ID, subfolder_name.strip())
 
-                if not files:
-                    st.warning("Nie znaleziono zadnych plikow PDF w podanym folderze.")
+                if subfolder is None:
+                    st.error(f"Nie znaleziono podfolderu o nazwie '{subfolder_name}' w folderze glownym.")
                 else:
-                    count = write_to_sheets(creds, SPREADSHEET_ID, files)
-                    st.success(
-                        f"Gotowe! Dopisano {count} plik(ow) PDF do Google Sheets."
-                    )
-                    st.dataframe(
-                        [{"Nazwa pliku": f["name"], "Data": f.get("createdTime", ""), "Rozmiar": f.get("size", "")} for f in files],
-                        use_container_width=True,
-                    )
+                    st.info(f"Znaleziono podfolder: {subfolder['name']} — czytam pliki PDF...")
+                    files = list_pdfs_from_drive(creds, subfolder["id"])
+
+                    if not files:
+                        st.warning(f"Brak plikow PDF w podfolderze '{subfolder_name}'.")
+                    else:
+                        count = write_to_sheets(creds, SPREADSHEET_ID, files)
+                        st.success(
+                            f"Gotowe! Dopisano {count} plik(ow) PDF z folderu '{subfolder_name}' do Google Sheets."
+                        )
+                        st.dataframe(
+                            [{"Nazwa pliku": f["name"], "Data": f.get("createdTime", ""), "Rozmiar": f.get("size", "")} for f in files],
+                            use_container_width=True,
+                        )
             except Exception as e:
                 st.error(f"Wystapil blad: {e}")
