@@ -111,9 +111,10 @@ def sync_to_sheets(credentials, spreadsheet_id, drive_files_data, sheet_name):
     Synchronizuje dane z Drive do arkusza z zachowaniem wierszy z C=1.
 
     Logika:
-    - C=1 (zweryfikowane przez uzytkownika): wiersze NIETYKALANE
-    - C=0 (do weryfikacji): nadpisane nowym odczytem
-    - Nowe pliki: dodane na koniec z C=0
+    1. Usun wszystkie wiersze z C=0 (niezweryfikowane)
+    2. Zachowaj wiersze z C=1 (zweryfikowane przez uzytkownika)
+    3. Dodaj pliki z Drive ktorych NIE MA wsrod wierszy C=1
+    4. Efekt: pliki usuniete z Drive znikaja z arkusza po kolejnym uruchomieniu
     """
     client = gspread.authorize(credentials)
     spreadsheet = client.open_by_key(spreadsheet_id)
@@ -126,33 +127,31 @@ def sync_to_sheets(credentials, spreadsheet_id, drive_files_data, sheet_name):
 
     existing = read_existing_rows(worksheet)
 
-    # Buduj slownik nowych danych z Drive (nazwa -> brutto)
+    # Zbierz nazwy plikow zweryfikowanych (C=1) — te sa nietykalane
+    verified_names = {
+        name for name, data in existing.items() if data["status"] == "1"
+    }
+
+    # Usun wiersze z C=0 (od konca zeby nie przesunal indeksow)
+    rows_to_delete = sorted(
+        [data["row_index"] for name, data in existing.items() if data["status"] != "1"],
+        reverse=True,
+    )
+    for row_index in rows_to_delete:
+        worksheet.delete_rows(row_index)
+
+    # Dodaj pliki z Drive ktorych nie ma wsrod zweryfikowanych
     drive_data = {f["name"]: f["brutto"] for f in drive_files_data}
-
-    updates = []   # (row_index, brutto) — do nadpisania wierszy z C=0
-    new_rows = []  # nowe pliki nieobecne w arkuszu
-
-    for name, brutto in drive_data.items():
-        if name in existing:
-            if existing[name]["status"] == "1":
-                # Zweryfikowany — pomijamy
-                pass
-            else:
-                # C=0 — nadpisz kwote, status pozostaje 0
-                updates.append((existing[name]["row_index"], name, brutto))
-        else:
-            # Nowy plik — dodaj
-            new_rows.append([name, brutto, "0"])
-
-    # Zastosuj aktualizacje wierszy C=0
-    for row_index, name, brutto in updates:
-        worksheet.update(f"A{row_index}:C{row_index}", [[name, brutto, "0"]])
-
-    # Dodaj nowe wiersze
+    new_rows = [
+        [name, brutto, "0"]
+        for name, brutto in drive_data.items()
+        if name not in verified_names
+    ]
     if new_rows:
         worksheet.append_rows(new_rows)
 
-    return len(updates), len(new_rows)
+    skipped = len(verified_names)
+    return skipped, len(new_rows)
 
 
 # ----------------------------------------------------------------
@@ -222,13 +221,13 @@ if run:
                     progress.empty()
 
                     with st.spinner("Synchronizuje z Google Sheets..."):
-                        updated, added = sync_to_sheets(
+                        skipped, added = sync_to_sheets(
                             creds, SPREADSHEET_ID, files_data, name
                         )
 
                     st.success(
-                        f"Gotowe! Zaktualizowano: {updated} | Dodano nowych: {added} | "
-                        f"Pominieto (C=1): {len(files) - updated - added}"
+                        f"Gotowe! Dodano/odswiezono: {added} | "
+                        f"Zachowano zweryfikowanych (C=1): {skipped}"
                     )
                     st.dataframe(
                         [{"Nazwa pliku": d["name"], "Kwota brutto": d["brutto"]} for d in files_data],
