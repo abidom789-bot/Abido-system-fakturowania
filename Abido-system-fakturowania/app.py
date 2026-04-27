@@ -9,7 +9,8 @@ from googleapiclient.discovery import build
 # ----------------------------------------------------------------
 # KONFIGURACJA
 # ----------------------------------------------------------------
-FOLDER_ID = "1kwY6tOalKS2jnidABw6uUV23ykMj1iR2"
+FOLDER_ID = "1kwY6tOalKS2jnidABw6uUV23ykMj1iR2"           # Faktury (root)
+FAKTURY_KOSZTOWE_ID = "12RxQDakB6y9pxURM_Z73sS0fLNQyGtm1"  # Faktury-kosztowe
 SPREADSHEET_ID = "1oFgjTnx6JwjD6j1pvRhcfSmd-1IwP2l3nLsw-8qv8a0"
 # ----------------------------------------------------------------
 
@@ -196,7 +197,7 @@ if btn_sprawdz:
             drive_service = build("drive", "v3", credentials=creds)
 
             with st.spinner("Sprawdzam..."):
-                subfolder = find_subfolder(drive_service, FOLDER_ID, name)
+                subfolder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, name)
                 drive_count = 0
                 if subfolder:
                     files = list_pdfs_from_drive(drive_service, subfolder["id"])
@@ -206,21 +207,28 @@ if btn_sprawdz:
 
             st.subheader(f"Wyniki dla: {name}")
             col_a, col_b = st.columns(2)
-            with col_a:
-                st.metric("Pliki PDF na Google Drive", drive_count)
-            with col_b:
-                if sheet_counts is None:
-                    st.metric("Arkusz Google Sheets", "brak arkusza")
-                else:
-                    total = sum(sheet_counts.values())
-                    st.metric("Wiersze w Google Sheets", total)
 
-            if sheet_counts is not None:
-                st.markdown(
-                    f"- Status **0** (do weryfikacji): **{sheet_counts['0']}**\n"
-                    f"- Status **1** (zweryfikowane): **{sheet_counts['1']}**\n"
-                    f"- Brak statusu / inne: **{sheet_counts['inne']}**"
-                )
+            with col_a:
+                st.markdown("**Google Drive**")
+                with st.container(border=True):
+                    if subfolder is None:
+                        st.warning("Nie znaleziono folderu na Drive.")
+                    else:
+                        st.metric("Pliki PDF w folderze", drive_count)
+
+            with col_b:
+                st.markdown("**Google Sheets**")
+                with st.container(border=True):
+                    if sheet_counts is None:
+                        st.warning("Brak arkusza o tej nazwie.")
+                    else:
+                        total = sum(sheet_counts.values())
+                        st.metric("Wierszy lacznie", total)
+                        st.markdown(
+                            f"- Status **0** (do weryfikacji): **{sheet_counts['0']}**  \n"
+                            f"- Status **1** (zweryfikowane): **{sheet_counts['1']}**  \n"
+                            f"- Brak statusu / inne: **{sheet_counts['inne']}**"
+                        )
 
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
@@ -238,7 +246,7 @@ if btn_czytaj:
             drive_service = build("drive", "v3", credentials=creds)
 
             with st.spinner(f"Szukam podfolderu '{name}'..."):
-                subfolder = find_subfolder(drive_service, FOLDER_ID, name)
+                subfolder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, name)
 
             if subfolder is None:
                 st.error(f"Nie znaleziono podfolderu '{name}'.")
