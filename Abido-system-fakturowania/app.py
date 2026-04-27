@@ -1,10 +1,13 @@
+import io
+import re
 import streamlit as st
 import gspread
+import pdfplumber
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 # ----------------------------------------------------------------
-# KONFIGURACJA - uzupelnij te dwie wartosci
+# KONFIGURACJA
 # ----------------------------------------------------------------
 FOLDER_ID = "1kwY6tOalKS2jnidABw6uUV23ykMj1iR2"
 SPREADSHEET_ID = "1oFgjTnx6JwjD6j1pvRhcfSmd-1IwP2l3nLsw-8qv8a0"
@@ -17,17 +20,11 @@ SCOPES = [
 
 
 def get_credentials():
-    """Pobiera dane logowania z st.secrets (Streamlit Cloud)."""
     service_account_info = dict(st.secrets["gcp_service_account"])
-    credentials = Credentials.from_service_account_info(
-        service_account_info, scopes=SCOPES
-    )
-    return credentials
+    return Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
 
 
-def find_subfolder(credentials, parent_folder_id, subfolder_name):
-    """Szuka podfolderu o podanej nazwie wewnatrz folderu nadrzednego."""
-    service = build("drive", "v3", credentials=credentials)
+def find_subfolder(service, parent_folder_id, subfolder_name):
     query = (
         f"'{parent_folder_id}' in parents "
         f"and name = '{subfolder_name}' "
@@ -39,47 +36,75 @@ def find_subfolder(credentials, parent_folder_id, subfolder_name):
     return folders[0] if folders else None
 
 
-def list_pdfs_from_drive(credentials, folder_id):
-    """Zwraca liste nazw plikow PDF z podanego folderu Google Drive."""
-    service = build("drive", "v3", credentials=credentials)
+def list_pdfs_from_drive(service, folder_id):
     query = (
         f"'{folder_id}' in parents "
         "and mimeType='application/pdf' "
         "and trashed=false"
     )
-    results = (
-        service.files()
-        .list(
-            q=query,
-            fields="files(id, name, createdTime, size)",
-            orderBy="name",
-        )
-        .execute()
-    )
+    results = service.files().list(
+        q=query, fields="files(id, name)", orderBy="name"
+    ).execute()
     return results.get("files", [])
 
 
-def write_to_sheets(credentials, spreadsheet_id, files):
-    """Dopisuje nazwy plikow do Google Sheets (Sheet1)."""
+def download_pdf(service, file_id):
+    """Pobiera zawartosc pliku PDF z Google Drive jako bytes."""
+    request = service.files().get_media(fileId=file_id)
+    return request.execute()
+
+
+def extract_gross_amount(pdf_bytes):
+    """
+    Wyciaga kwote brutto z tekstu PDF.
+    Szuka fraz takich jak: 'do zaplaty', 'razem brutto', 'kwota brutto', 'laczna kwota'.
+    Zwraca znaleziona kwote jako string lub '' jesli nie znaleziono.
+    """
+    patterns = [
+        r"do\s+zap[lł]aty[^\d]*?([\d\s]+[,.][\d]{2})",
+        r"razem\s+brutto[^\d]*?([\d\s]+[,.][\d]{2})",
+        r"kwota\s+brutto[^\d]*?([\d\s]+[,.][\d]{2})",
+        r"[lł][aą]czna\s+kwota[^\d]*?([\d\s]+[,.][\d]{2})",
+        r"suma\s+brutto[^\d]*?([\d\s]+[,.][\d]{2})",
+        r"ogó?[lł]em\s+brutto[^\d]*?([\d\s]+[,.][\d]{2})",
+        r"total[^\d]*?([\d\s]+[,.][\d]{2})",
+    ]
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            text = ""
+            for page in pdf.pages:
+                text += (page.extract_text() or "") + "\n"
+        text_lower = text.lower()
+        for pattern in patterns:
+            match = re.search(pattern, text_lower)
+            if match:
+                amount = match.group(1).strip().replace(" ", "")
+                return amount
+    except Exception:
+        pass
+    return ""
+
+
+def get_or_create_worksheet(spreadsheet, sheet_name):
+    """Zwraca arkusz o podanej nazwie lub tworzy go jesli nie istnieje."""
+    try:
+        worksheet = spreadsheet.worksheet(sheet_name)
+        worksheet.clear()
+    except gspread.exceptions.WorksheetNotFound:
+        worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=500, cols=5)
+    return worksheet
+
+
+def write_to_sheets(credentials, spreadsheet_id, files_data, sheet_name):
+    """Zapisuje dane do arkusza o nazwie sheet_name."""
     client = gspread.authorize(credentials)
     spreadsheet = client.open_by_key(spreadsheet_id)
-    worksheet = spreadsheet.sheet1
+    worksheet = get_or_create_worksheet(spreadsheet, sheet_name)
 
-    # Naglowki jesli arkusz jest pusty
-    if worksheet.row_count == 0 or worksheet.cell(1, 1).value is None:
-        worksheet.append_row(["Nazwa pliku", "Data utworzenia", "Rozmiar (bytes)"])
-
-    rows = [
-        [
-            f["name"],
-            f.get("createdTime", ""),
-            f.get("size", ""),
-        ]
-        for f in files
-    ]
+    worksheet.append_row(["Nazwa pliku", "Kwota brutto"])
+    rows = [[f["name"], f["brutto"]] for f in files_data]
     if rows:
         worksheet.append_rows(rows)
-
     return len(rows)
 
 
@@ -97,10 +122,8 @@ st.title("System Fakturowania")
 st.markdown("---")
 
 st.markdown(
-    """
-    Kliknij przycisk ponizej, aby zaczytac liste plikow PDF
-    z folderu Google Drive i zapisac je do Arkusza Google Sheets.
-    """
+    "Wpisz nazwe podfolderu z fakturami, a aplikacja odczyta kwoty brutto z PDF "
+    "i zapisze je do odpowiedniego arkusza w Google Sheets."
 )
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -120,32 +143,42 @@ with col2:
 if run:
     if not subfolder_name.strip():
         st.error("Wpisz nazwe podfolderu przed uruchomieniem.")
-    elif FOLDER_ID.startswith("WKLEJ") or SPREADSHEET_ID.startswith("WKLEJ"):
-        st.error(
-            "Uzupelnij zmienne FOLDER_ID oraz SPREADSHEET_ID w pliku app.py przed uruchomieniem."
-        )
     else:
-        with st.spinner(f"Szukam podfolderu '{subfolder_name}'..."):
-            try:
-                creds = get_credentials()
-                subfolder = find_subfolder(creds, FOLDER_ID, subfolder_name.strip())
+        name = subfolder_name.strip()
+        try:
+            creds = get_credentials()
+            drive_service = build("drive", "v3", credentials=creds)
 
-                if subfolder is None:
-                    st.error(f"Nie znaleziono podfolderu o nazwie '{subfolder_name}' w folderze glownym.")
+            with st.spinner(f"Szukam podfolderu '{name}'..."):
+                subfolder = find_subfolder(drive_service, FOLDER_ID, name)
+
+            if subfolder is None:
+                st.error(f"Nie znaleziono podfolderu '{name}' w folderze glownym.")
+            else:
+                with st.spinner("Pobieram liste plikow PDF..."):
+                    files = list_pdfs_from_drive(drive_service, subfolder["id"])
+
+                if not files:
+                    st.warning(f"Brak plikow PDF w podfolderze '{name}'.")
                 else:
-                    st.info(f"Znaleziono podfolder: {subfolder['name']} — czytam pliki PDF...")
-                    files = list_pdfs_from_drive(creds, subfolder["id"])
+                    progress = st.progress(0, text="Analizuje faktury...")
+                    files_data = []
+                    for i, f in enumerate(files):
+                        progress.progress((i + 1) / len(files), text=f"Analizuje: {f['name']}")
+                        pdf_bytes = download_pdf(drive_service, f["id"])
+                        brutto = extract_gross_amount(pdf_bytes)
+                        files_data.append({"name": f["name"], "brutto": brutto})
 
-                    if not files:
-                        st.warning(f"Brak plikow PDF w podfolderze '{subfolder_name}'.")
-                    else:
-                        count = write_to_sheets(creds, SPREADSHEET_ID, files)
-                        st.success(
-                            f"Gotowe! Dopisano {count} plik(ow) PDF z folderu '{subfolder_name}' do Google Sheets."
-                        )
-                        st.dataframe(
-                            [{"Nazwa pliku": f["name"], "Data": f.get("createdTime", ""), "Rozmiar": f.get("size", "")} for f in files],
-                            use_container_width=True,
-                        )
-            except Exception as e:
-                st.error(f"Wystapil blad: {e}")
+                    progress.empty()
+
+                    with st.spinner("Zapisuje do Google Sheets..."):
+                        count = write_to_sheets(creds, SPREADSHEET_ID, files_data, name)
+
+                    st.success(f"Gotowe! Zapisano {count} faktur w arkuszu '{name}'.")
+                    st.dataframe(
+                        [{"Nazwa pliku": d["name"], "Kwota brutto": d["brutto"]} for d in files_data],
+                        use_container_width=True,
+                    )
+
+        except Exception as e:
+            st.error(f"Wystapil blad: {e}")
