@@ -167,8 +167,13 @@ st.set_page_config(
 st.title("System Fakturowania")
 st.markdown("---")
 
+KATEGORIE = [
+    "Faktury-kosztowe",
+    "Faktury-kosztowe-wlasciciele-spoldzielnie",
+]
+
 st.markdown(
-    "Wpisz nazwe podfolderu. Nowe faktury zostana dodane z C=0. "
+    "Wybierz kategorie faktur i wpisz nazwe podfolderu miesiacowego. "
     "Wiersze z C=1 (zweryfikowane recznie) pozostana niezmienione."
 )
 
@@ -176,9 +181,10 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
+    kategoria = st.selectbox("Kategoria faktur", KATEGORIE)
     subfolder_name = st.text_input(
-        "Nazwa podfolderu (np. 032026)",
-        placeholder="wpisz nazwe podfolderu...",
+        "Miesiac (np. 032026)",
+        placeholder="wpisz nazwe podfolderu miesiacowego...",
     )
     run = st.button(
         "Zaczytaj faktury kosztowe do Google Sheets",
@@ -188,19 +194,25 @@ with col2:
 
 if run:
     if not subfolder_name.strip():
-        st.error("Wpisz nazwe podfolderu przed uruchomieniem.")
+        st.error("Wpisz nazwe podfolderu miesiacowego przed uruchomieniem.")
     else:
         name = subfolder_name.strip()
         try:
             creds = get_credentials()
             drive_service = build("drive", "v3", credentials=creds)
 
-            with st.spinner(f"Szukam podfolderu '{name}'..."):
-                subfolder = find_subfolder(drive_service, FOLDER_ID, name)
+            with st.spinner(f"Szukam folderu '{kategoria}'..."):
+                kat_folder = find_subfolder(drive_service, FOLDER_ID, kategoria)
 
-            if subfolder is None:
-                st.error(f"Nie znaleziono podfolderu '{name}' w folderze glownym.")
+            if kat_folder is None:
+                st.error(f"Nie znaleziono folderu '{kategoria}' na Drive.")
             else:
+                with st.spinner(f"Szukam podfolderu '{name}'..."):
+                    subfolder = find_subfolder(drive_service, kat_folder["id"], name)
+
+            if kat_folder is not None and subfolder is None:
+                st.error(f"Nie znaleziono podfolderu '{name}' w '{kategoria}'.")
+            elif kat_folder is not None:
                 with st.spinner("Pobieram liste plikow PDF..."):
                     files = list_pdfs_from_drive(drive_service, subfolder["id"])
 
