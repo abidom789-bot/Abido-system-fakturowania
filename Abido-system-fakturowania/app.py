@@ -173,6 +173,11 @@ def rebuild_sheet(worksheet, sections):
             sep_row_nums[sep] = len(all_new)  # aktualny ostatni wiersz
             all_new.extend(sections[sep])
     worksheet.clear()
+    # Reset formatowania calego arkusza (clear() nie czysci kolorow)
+    worksheet.format("A1:F500", {
+        "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
+        "textFormat": {"bold": False},
+    })
     if all_new:
         worksheet.update("A1", all_new)
     for sep, row_num in sep_row_nums.items():
