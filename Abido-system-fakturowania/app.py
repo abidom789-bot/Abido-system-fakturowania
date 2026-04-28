@@ -199,7 +199,7 @@ def apply_sync_logic(existing_rows, new_data, has_address=False):
     verified = {
         row[0]: row
         for row in existing_rows
-        if len(row) > 2 and row[2] == "1"
+        if len(row) > 2 and str(row[2]).strip() == "1"
     }
     new_keys = {item["key"] for item in new_data}
     result = []
@@ -247,7 +247,7 @@ def count_sheet_statuses(credentials, spreadsheet_id, sheet_name):
     for row in all_rows[1:]:
         if not row or not row[0] or row[0].startswith("---"):
             continue
-        status = row[2] if len(row) > 2 else ""
+        status = str(row[2]).strip() if len(row) > 2 else ""
         if status == "0":
             counts["0"] += 1
         elif status == "1":
