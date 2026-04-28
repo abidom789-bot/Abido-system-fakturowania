@@ -9,15 +9,20 @@ from googleapiclient.discovery import build
 # ----------------------------------------------------------------
 # KONFIGURACJA
 # ----------------------------------------------------------------
-FOLDER_ID = "1kwY6tOalKS2jnidABw6uUV23ykMj1iR2"           # Faktury (root)
-FAKTURY_KOSZTOWE_ID = "12RxQDakB6y9pxURM_Z73sS0fLNQyGtm1"  # Faktury-kosztowe
-SPREADSHEET_ID = "1oFgjTnx6JwjD6j1pvRhcfSmd-1IwP2l3nLsw-8qv8a0"
+FOLDER_ID            = "1kwY6tOalKS2jnidABw6uUV23ykMj1iR2"           # Faktury (root)
+FAKTURY_KOSZTOWE_ID  = "12RxQDakB6y9pxURM_Z73sS0fLNQyGtm1"           # Faktury-kosztowe
+MIESZKANIA_FOLDER_ID = "1mvVZN6y2vaKyWGV6SIWd7FuK38T2DHAI"           # 01_MIESZKANIA
+SPREADSHEET_ID       = "1oFgjTnx6JwjD6j1pvRhcfSmd-1IwP2l3nLsw-8qv8a0"
 # ----------------------------------------------------------------
 
 SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/spreadsheets",
 ]
+
+SEP_KOSZTOWE   = "--- FAKTURY KOSZTOWE ---"
+SEP_WLASCICIEL = "--- FAKTURY WLASCICIELE I SPOLDZIELNIE ---"
+SEP_SPRZEDAZ   = "--- FAKTURY SPRZEDAZY NAJEMCOM ---"
 
 
 def get_credentials():
@@ -80,60 +85,162 @@ def extract_gross_amount(pdf_bytes):
     return ""
 
 
+def list_fvs_folders(service, parent_id):
+    """Zwraca liste folderow najemcow oznaczonych tagiem [FVS]."""
+    query = (
+        f"'{parent_id}' in parents "
+        "and mimeType = 'application/vnd.google-apps.folder' "
+        "and trashed = false"
+    )
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    folders = results.get("files", [])
+    return [f for f in folders if f["name"].startswith("[FVS]")]
+
+
+def parse_fvs_folder(folder_name):
+    """
+    Parsuje nazwe folderu najemcy.
+    Format: [FVS] Imie Nazwisko | Adres | Cena | DataOd-DataDo
+    Zwraca dict: name, address, price, period
+    """
+    # Usun tag [FVS] z poczatku
+    text = folder_name.replace("[FVS]", "").strip()
+    parts = [p.strip() for p in text.split("|")]
+    return {
+        "name":    parts[0] if len(parts) > 0 else "",
+        "address": parts[1] if len(parts) > 1 else "",
+        "price":   parts[2] if len(parts) > 2 else "",
+        "period":  parts[3] if len(parts) > 3 else "",
+    }
+
+
+# ----------------------------------------------------------------
+# GOOGLE SHEETS — funkcje pomocnicze
+# ----------------------------------------------------------------
+
 def get_or_create_worksheet(spreadsheet, sheet_name):
     try:
         return spreadsheet.worksheet(sheet_name)
     except gspread.exceptions.WorksheetNotFound:
-        return spreadsheet.add_worksheet(title=sheet_name, rows=500, cols=5)
+        return spreadsheet.add_worksheet(title=sheet_name, rows=500, cols=6)
 
 
-def read_existing_rows(worksheet):
+def is_separator(row):
+    """Sprawdza czy wiersz jest separatorem sekcji."""
+    return row and row[0].startswith("---")
+
+
+def read_section_rows(worksheet, section_marker):
+    """
+    Czyta wiersze nalezace do danej sekcji (miedzy jej separatorem a nastepnym).
+    Zwraca dict: nazwa -> {brutto, status, row_index}
+    """
     all_rows = worksheet.get_all_values()
+    in_section = False
     existing = {}
-    for i, row in enumerate(all_rows[1:], start=2):
-        if len(row) >= 1 and row[0]:
-            name = row[0]
-            brutto = row[1] if len(row) > 1 else ""
-            status = row[2] if len(row) > 2 else "0"
-            existing[name] = {"brutto": brutto, "status": status, "row_index": i}
+    for i, row in enumerate(all_rows):
+        val = row[0] if row else ""
+        if val == section_marker:
+            in_section = True
+            continue
+        if in_section:
+            if val.startswith("---"):
+                break  # nastepna sekcja
+            if not val:
+                continue
+            brutto  = row[1] if len(row) > 1 else ""
+            status  = row[2] if len(row) > 2 else "0"
+            address = row[3] if len(row) > 3 else ""
+            existing[val] = {
+                "brutto": brutto, "status": status,
+                "address": address, "row_index": i + 1  # 1-based
+            }
     return existing
 
 
-def sync_to_sheets(credentials, spreadsheet_id, drive_files_data, sheet_name):
-    client = gspread.authorize(credentials)
-    spreadsheet = client.open_by_key(spreadsheet_id)
-    worksheet = get_or_create_worksheet(spreadsheet, sheet_name)
+def ensure_sheet_structure(worksheet):
+    """Upewnia sie ze arkusz ma poprawna strukture z separatorami sekcji."""
+    all_rows = worksheet.get_all_values()
+    flat = [r[0] for r in all_rows if r]
 
-    first_row = worksheet.row_values(1)
-    if not first_row or first_row[0] != "Nazwa pliku":
-        worksheet.insert_row(["Nazwa pliku", "Kwota brutto", "Status"], index=1)
+    # Naglowek kolumn
+    if not flat or flat[0] != "Nazwa / Plik":
+        worksheet.insert_row(
+            ["Nazwa / Plik", "Kwota brutto", "Status", "Adres"], index=1
+        )
+        all_rows = worksheet.get_all_values()
+        flat = [r[0] for r in all_rows if r]
 
-    existing = read_existing_rows(worksheet)
-    verified_names = {
-        name for name, data in existing.items() if data["status"] == "1"
-    }
+    # Dodaj brakujace separatory na koncu jesli ich nie ma
+    for sep in [SEP_KOSZTOWE, SEP_WLASCICIEL, SEP_SPRZEDAZ]:
+        if sep not in flat:
+            worksheet.append_row([sep, "", "", ""])
 
-    rows_to_delete = sorted(
-        [data["row_index"] for name, data in existing.items() if data["status"] != "1"],
-        reverse=True,
+
+def sync_section(worksheet, section_marker, drive_data, has_address=False):
+    """
+    Synchronizuje wiersze w danej sekcji arkusza.
+    - Usuwa wiersze C=0 w tej sekcji
+    - Zachowuje C=1
+    - Dodaje nowe pozycje z Drive ktore nie maja C=1
+    Zwraca (skipped, added).
+    """
+    all_rows = worksheet.get_all_values()
+
+    # Znajdz zakres sekcji (indeksy 1-based)
+    sep_row_idx   = None
+    next_sep_idx  = None
+    for i, row in enumerate(all_rows):
+        val = row[0] if row else ""
+        if val == section_marker:
+            sep_row_idx = i + 1
+        elif sep_row_idx and val.startswith("---") and (i + 1) > sep_row_idx:
+            next_sep_idx = i + 1
+            break
+
+    if sep_row_idx is None:
+        return 0, 0
+
+    # Zbierz wiersze sekcji
+    end_idx = next_sep_idx - 1 if next_sep_idx else len(all_rows)
+    section_rows = []
+    for i in range(sep_row_idx, end_idx):  # 0-based slice
+        row = all_rows[i] if i < len(all_rows) else []
+        key = row[0] if row else ""
+        if not key:
+            continue
+        status = row[2] if len(row) > 2 else "0"
+        section_rows.append({"key": key, "status": status, "row_index": i + 1})
+
+    verified_keys = {r["key"] for r in section_rows if r["status"] == "1"}
+
+    # Usun wiersze C=0 od konca
+    to_delete = sorted(
+        [r["row_index"] for r in section_rows if r["status"] != "1"],
+        reverse=True
     )
-    for row_index in rows_to_delete:
-        worksheet.delete_rows(row_index)
+    for idx in to_delete:
+        worksheet.delete_rows(idx)
 
-    drive_data = {f["name"]: f["brutto"] for f in drive_files_data}
-    new_rows = [
-        [name, brutto, "0"]
-        for name, brutto in drive_data.items()
-        if name not in verified_names
-    ]
+    # Dodaj nowe pozycje nie bedace wsrod zweryfikowanych
+    new_rows = []
+    for item in drive_data:
+        key = item["key"]
+        if key not in verified_keys:
+            if has_address:
+                new_rows.append([key, item.get("brutto", ""), "0", item.get("address", "")])
+            else:
+                new_rows.append([key, item.get("brutto", ""), "0", ""])
+
     if new_rows:
+        # Wstaw przed nastepnym separatorem lub na koncu sekcji
+        # Najlatwiej: append (separatory sa zawsze na koncu)
         worksheet.append_rows(new_rows)
 
-    return len(verified_names), len(new_rows)
+    return len(verified_keys), len(new_rows)
 
 
 def count_sheet_statuses(credentials, spreadsheet_id, sheet_name):
-    """Zwraca slownik z liczba wierszy wg statusu."""
     client = gspread.authorize(credentials)
     spreadsheet = client.open_by_key(spreadsheet_id)
     try:
@@ -143,7 +250,7 @@ def count_sheet_statuses(credentials, spreadsheet_id, sheet_name):
     all_rows = worksheet.get_all_values()
     counts = {"0": 0, "1": 0, "inne": 0}
     for row in all_rows[1:]:
-        if not row or not row[0]:
+        if not row or not row[0] or row[0].startswith("---"):
             continue
         status = row[2] if len(row) > 2 else ""
         if status == "0":
@@ -171,11 +278,16 @@ st.markdown("---")
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     subfolder_name = st.text_input(
-        "Nazwa podfolderu (np. 032026)",
-        placeholder="wpisz nazwe podfolderu...",
+        "Miesiac (np. 032026)",
+        placeholder="wpisz nazwe podfolderu miesiacowego...",
     )
     btn_czytaj = st.button(
         "Zaczytaj faktury kosztowe do Google Sheets",
+        use_container_width=True,
+        type="primary",
+    )
+    btn_sprzedaz = st.button(
+        "Tworz wstepne wiersze faktur sprzedazy",
         use_container_width=True,
         type="primary",
     )
@@ -202,7 +314,6 @@ if btn_sprawdz:
                 if subfolder:
                     files = list_pdfs_from_drive(drive_service, subfolder["id"])
                     drive_count = len(files)
-
                 sheet_counts = count_sheet_statuses(creds, SPREADSHEET_ID, name)
 
             st.subheader(f"Wyniki dla: {name}")
@@ -229,12 +340,11 @@ if btn_sprawdz:
                             f"- Status **1** (zweryfikowane): **{sheet_counts['1']}**  \n"
                             f"- Brak statusu / inne: **{sheet_counts['inne']}**"
                         )
-
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
 # ----------------------------------------------------------------
-# AKCJA: Zaczytaj faktury
+# AKCJA: Zaczytaj faktury kosztowe
 # ----------------------------------------------------------------
 if btn_czytaj:
     if not subfolder_name.strip():
@@ -249,7 +359,7 @@ if btn_czytaj:
                 subfolder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, name)
 
             if subfolder is None:
-                st.error(f"Nie znaleziono podfolderu '{name}'.")
+                st.error(f"Nie znaleziono podfolderu '{name}' w Faktury-kosztowe.")
             else:
                 with st.spinner("Pobieram liste plikow PDF..."):
                     files = list_pdfs_from_drive(drive_service, subfolder["id"])
@@ -266,13 +376,16 @@ if btn_czytaj:
                         )
                         pdf_bytes = download_pdf(drive_service, f["id"])
                         brutto = extract_gross_amount(pdf_bytes)
-                        files_data.append({"name": f["name"], "brutto": brutto})
-
+                        files_data.append({"key": f["name"], "brutto": brutto})
                     progress.empty()
 
                     with st.spinner("Synchronizuje z Google Sheets..."):
-                        skipped, added = sync_to_sheets(
-                            creds, SPREADSHEET_ID, files_data, name
+                        client = gspread.authorize(creds)
+                        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+                        worksheet = get_or_create_worksheet(spreadsheet, name)
+                        ensure_sheet_structure(worksheet)
+                        skipped, added = sync_section(
+                            worksheet, SEP_KOSZTOWE, files_data, has_address=False
                         )
 
                     st.success(
@@ -280,9 +393,53 @@ if btn_czytaj:
                         f"Zachowano zweryfikowanych (C=1): {skipped}"
                     )
                     st.dataframe(
-                        [{"Nazwa pliku": d["name"], "Kwota brutto": d["brutto"]} for d in files_data],
+                        [{"Nazwa pliku": d["key"], "Kwota brutto": d["brutto"]} for d in files_data],
                         use_container_width=True,
                     )
+        except Exception as e:
+            st.error(f"Wystapil blad: {e}")
 
+# ----------------------------------------------------------------
+# AKCJA: Tworz wiersze faktur sprzedazy najemcom
+# ----------------------------------------------------------------
+if btn_sprzedaz:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu przed uruchomieniem.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds = get_credentials()
+            drive_service = build("drive", "v3", credentials=creds)
+
+            with st.spinner("Szukam folderow najemcow [FVS]..."):
+                fvs_folders = list_fvs_folders(drive_service, MIESZKANIA_FOLDER_ID)
+
+            if not fvs_folders:
+                st.warning("Nie znaleziono zadnych folderow z tagiem [FVS] w 01_MIESZKANIA.")
+            else:
+                tenants = [parse_fvs_folder(f["name"]) for f in fvs_folders]
+                drive_data = [
+                    {"key": t["name"], "brutto": t["price"], "address": t["address"]}
+                    for t in tenants
+                ]
+
+                with st.spinner("Synchronizuje z Google Sheets..."):
+                    client = gspread.authorize(creds)
+                    spreadsheet = client.open_by_key(SPREADSHEET_ID)
+                    worksheet = get_or_create_worksheet(spreadsheet, name)
+                    ensure_sheet_structure(worksheet)
+                    skipped, added = sync_section(
+                        worksheet, SEP_SPRZEDAZ, drive_data, has_address=True
+                    )
+
+                st.success(
+                    f"Gotowe! Dodano/odswiezono: {added} najemcow | "
+                    f"Zachowano zweryfikowanych (C=1): {skipped}"
+                )
+                st.dataframe(
+                    [{"Najemca": t["name"], "Kwota": t["price"],
+                      "Adres": t["address"], "Okres": t["period"]} for t in tenants],
+                    use_container_width=True,
+                )
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
