@@ -199,10 +199,8 @@ def rebuild_sheet(worksheet, sections):
     worksheet.format("A1:P500", {
         "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
         "textFormat": {"bold": False},
-        "horizontalAlignment": "LEFT",
+        "horizontalAlignment": "CENTER",
     })
-    # Kolumna A (nazwy) — wyśrodkowana
-    worksheet.format("A1:A500", {"horizontalAlignment": "CENTER"})
     if all_new:
         worksheet.update("A1", all_new, value_input_option="USER_ENTERED")
     for sep, row_num in sep_row_nums.items():
