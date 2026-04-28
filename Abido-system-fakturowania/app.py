@@ -116,6 +116,23 @@ def get_or_create_worksheet(spreadsheet, sheet_name):
         return spreadsheet.add_worksheet(title=sheet_name, rows=500, cols=6)
 
 
+def _match_separator(val):
+    """Rozpoznaje separator sekcji - dokladnie lub po slowach kluczowych (legacy)."""
+    if val in SECTION_ORDER:
+        return val
+    # Dopasowanie czesciowe dla starych/polaczonych separatorow
+    if "---" not in val:
+        return None
+    v = val.upper()
+    if "WLASCICIELE" in v or "SPOLDZIELNIE" in v:
+        return SEP_WLASC
+    if "SPRZEDAZ" in v or "NAJEMCOM" in v:
+        return SEP_SPRZEDAZ
+    if "KOSZTOWE" in v:
+        return SEP_KOSZTOWE
+    return None
+
+
 def read_all_sections(worksheet):
     """
     Czyta caly arkusz i zwraca slownik sekcji:
@@ -127,8 +144,9 @@ def read_all_sections(worksheet):
     current  = None
     for row in all_rows:
         val = row[0] if row else ""
-        if val in SECTION_ORDER:
-            current = val
+        matched = _match_separator(val)
+        if matched:
+            current = matched
         elif current and val:
             sections[current].append(row)
     return sections
