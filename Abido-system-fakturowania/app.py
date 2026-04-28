@@ -201,7 +201,7 @@ def rebuild_sheet(worksheet, sections):
         "textFormat": {"bold": False},
     })
     if all_new:
-        worksheet.update("A1", all_new)
+        worksheet.update("A1", all_new, value_input_option="USER_ENTERED")
     for sep, row_num in sep_row_nums.items():
         worksheet.format(f"A{row_num}:P{row_num}", {
             "backgroundColor": SEP_COLORS[sep],
