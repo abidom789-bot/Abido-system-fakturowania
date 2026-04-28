@@ -138,10 +138,11 @@ SELLER_ACCOUNT = "Nr konta: 98 1870 1045 2078 1071 3878 0001"
 FAKTURY_SPRZEDAZY_FOLDER = "Faktury-sprzedazy"
 
 _PDF_FONTS_CACHED: dict = {}
+_FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 
 
 def _get_pdf_fonts():
-    """Rejestruje czcionki DejaVu (z systemu lub /tmp). Zwraca (regular, bold)."""
+    """Rejestruje czcionki DejaVu. Szuka w fonts/ obok app.py, potem w systemie."""
     global _PDF_FONTS_CACHED
     if _PDF_FONTS_CACHED:
         return _PDF_FONTS_CACHED["reg"], _PDF_FONTS_CACHED["bold"]
@@ -151,9 +152,9 @@ def _get_pdf_fonts():
     from reportlab.pdfbase.pdfmetrics import registerFontFamily
 
     FONT_DIRS = [
+        _FONTS_DIR,
         "/usr/share/fonts/truetype/dejavu",
         "/usr/share/fonts/dejavu",
-        "/tmp",
     ]
 
     def find_font(fname):
@@ -165,20 +166,6 @@ def _get_pdf_fonts():
 
     reg_path  = find_font("DejaVuSans.ttf")
     bold_path = find_font("DejaVuSans-Bold.ttf")
-
-    if not reg_path:
-        import urllib.request
-        for fname, url in [
-            ("DejaVuSans.ttf",
-             "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf"),
-            ("DejaVuSans-Bold.ttf",
-             "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans-Bold.ttf"),
-        ]:
-            dst = f"/tmp/{fname}"
-            if not os.path.exists(dst):
-                urllib.request.urlretrieve(url, dst)
-        reg_path  = "/tmp/DejaVuSans.ttf"
-        bold_path = "/tmp/DejaVuSans-Bold.ttf"
 
     try:
         pdfmetrics.registerFont(TTFont("DejaVu", reg_path))
@@ -1065,10 +1052,6 @@ with right_col:
         use_container_width=True,
         type="primary",
     )
-    btn_generuj_pdf = st.button(
-        "Generuj faktury sprzedazy PDF",
-        use_container_width=True,
-    )
 
 st.markdown("---")
 paruj_col, status_col = st.columns(2)
@@ -1081,6 +1064,13 @@ with paruj_col:
 with status_col:
     btn_status_parowania = st.button(
         "Status parowania",
+        use_container_width=True,
+    )
+
+generuj_col, _ = st.columns([1, 1])
+with generuj_col:
+    btn_generuj_pdf = st.button(
+        "Generuj faktury sprzedazy PDF",
         use_container_width=True,
     )
 
