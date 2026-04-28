@@ -86,15 +86,22 @@ def extract_gross_amount(pdf_bytes):
 
 
 def list_fvs_folders(service, parent_id):
-    """Zwraca liste folderow najemcow oznaczonych tagiem [FVS]."""
+    """
+    Zwraca liste folderow najemcow oznaczonych tagiem [FVS].
+    Przeszukuje rekurencyjnie cala strukture w obrebie parent_id.
+    """
     query = (
-        f"'{parent_id}' in parents "
+        "name contains '[FVS]' "
         "and mimeType = 'application/vnd.google-apps.folder' "
         "and trashed = false"
     )
-    results = service.files().list(q=query, fields="files(id, name)").execute()
-    folders = results.get("files", [])
-    return [f for f in folders if f["name"].startswith("[FVS]")]
+    results = service.files().list(
+        q=query,
+        fields="files(id, name)",
+        includeItemsFromAllDrives=False,
+        supportsAllDrives=False,
+    ).execute()
+    return results.get("files", [])
 
 
 def parse_fvs_folder(folder_name):
