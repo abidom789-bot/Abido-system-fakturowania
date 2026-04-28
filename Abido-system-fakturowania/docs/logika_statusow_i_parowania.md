@@ -191,8 +191,10 @@ Słowa kluczowe mediów (decydują o kos_med vs kos): Netia, EON, E.ON, PGNiG, P
 
 ---
 
-## Otwarte pytania (do uzupełnienia)
+## Odpowiedzi na pytania konfiguracyjne
 
-- [ ] Q5: Które sekcje są parowane? Tylko kosztowe, czy też najem i właściciele?
-- [ ] Skąd brana jest nazwa pliku XLS wyciągu? Stała nazwa (np. lista_operacji_MMRRRR.xls), czy program szuka najnowszego pliku w folderze?
-- [ ] Czy folder Listy_operacji_abido jest bezpośrednio w folderze głównym Faktury, czy zagnieżdżony głębiej?
+- [x] Q5: Parowane są **wszystkie sekcje** — kosztowe, najem (sprzedaż) i właściciele
+- [x] Nazwa pliku XLS: zawsze `lista_operacji_MMRRRR.xls` np. `lista_operacji_032026.xls`
+       Program szuka pliku po nazwie skonstruowanej z numeru miesiąca wpisanego przez użytkownika
+- [x] Folder: `Listy_operacji_abido` jest bezpośrednio w folderze głównym `Faktury` (FOLDER_ID)
+       Szukamy go przez `find_subfolder(service, FOLDER_ID, "Listy_operacji_abido")`
