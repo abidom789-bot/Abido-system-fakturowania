@@ -351,13 +351,17 @@ if btn_sprzedaz:
                 st.warning("Nie znaleziono zadnych folderow z tagiem [FVS].")
             else:
                 tenants = [parse_fvs_folder(f["name"]) for f in fvs_folders]
+                tenants_data = [
+                    {"key": t["name"], "brutto": t["price"], "address": t["address"]}
+                    for t in tenants
+                ]
 
                 with st.spinner("Zapisuje do Google Sheets..."):
                     client = gspread.authorize(creds)
                     worksheet = get_or_create_worksheet(
                         client.open_by_key(SPREADSHEET_ID), name
                     )
-                    skipped, added = sync_sprzedaz(worksheet, tenants)
+                    skipped, added = sync_sprzedaz(worksheet, tenants_data)
 
                 st.success(f"Gotowe! Dodano: {added} najemcow | Zachowano (C=1): {skipped}")
                 st.dataframe(
