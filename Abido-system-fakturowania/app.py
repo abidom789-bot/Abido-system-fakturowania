@@ -243,6 +243,8 @@ def apply_sync_logic(existing_rows, new_data, has_address=False):
 def sync_kosztowe(worksheet, files_data):
     sections                  = read_all_sections(worksheet)
     new_rows, skipped, added  = apply_sync_logic(sections[SEP_KOSZTOWE], files_data)
+    # Faktury 'cash' na koniec sekcji kosztowej
+    new_rows.sort(key=lambda r: _is_cash(r[0] if r else ""))
     sections[SEP_KOSZTOWE]    = new_rows
     rebuild_sheet(worksheet, sections)
     return skipped, added
@@ -400,8 +402,16 @@ def _is_media(tx):
     return any(kw in text for kw in MEDIA_KW)
 
 
-def assign_klucz_ksiegowy(section, tx, amount_b_str):
+def _is_cash(filename):
+    return "cash" in str(filename).lower()
+
+
+def assign_klucz_ksiegowy(section, tx, amount_b_str, filename=""):
     """Wyznacza Klucz_Ksiegowy na podstawie sekcji i transakcji."""
+    # Faktura gotowkowa (nazwa zawiera 'cash') → zawsze kos_rk_kw
+    if section == SEP_KOSZTOWE and _is_cash(filename):
+        return "kos_rk_kw"
+
     if tx is None:
         if section == SEP_SPRZEDAZ:
             return "prz_naj_rk_kp"
@@ -559,11 +569,11 @@ def sync_parowanie(worksheet, transactions):
         tx_idx = matched.get(flat_idx)
         if tx_idx is not None:
             tx = transactions[tx_idx]
-            klucz = assign_klucz_ksiegowy(sep, tx, row[1] if len(row) > 1 else "")
+            klucz = assign_klucz_ksiegowy(sep, tx, row[1] if len(row) > 1 else "", row[0] if row else "")
             sections[sep][row_idx] = _build_paired_row(row, tx, klucz)
         else:
             # Brak pary — klucz ksiegowy + wyczysc kolumny wyciagu
-            klucz = assign_klucz_ksiegowy(sep, None, row[1] if len(row) > 1 else "")
+            klucz = assign_klucz_ksiegowy(sep, None, row[1] if len(row) > 1 else "", row[0] if row else "")
             r = list(row) + [""] * max(0, 16 - len(row))
             r[4] = klucz
             for col in range(5, 16):
