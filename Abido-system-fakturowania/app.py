@@ -193,6 +193,7 @@ def rebuild_sheet(worksheet, sections):
 def apply_sync_logic(existing_rows, new_data, has_address=False):
     """
     Laczy istniejace zweryfikowane wiersze (C=1) z nowymi danymi.
+    Wiersze z C=1 sa zachowane nawet jesli plik zostal usuniety z Drive.
     Zwraca (nowe_wiersze, skipped, added).
     """
     verified = {
@@ -200,6 +201,7 @@ def apply_sync_logic(existing_rows, new_data, has_address=False):
         for row in existing_rows
         if len(row) > 2 and row[2] == "1"
     }
+    new_keys = {item["key"] for item in new_data}
     result = []
     for item in new_data:
         key = item["key"]
@@ -208,6 +210,10 @@ def apply_sync_logic(existing_rows, new_data, has_address=False):
         else:
             addr = item.get("address", "") if has_address else ""
             result.append([key, item.get("brutto", ""), "0", addr])
+    # Zachowaj zweryfikowane wiersze ktorych plik zostal usuniety z Drive
+    for key, row in verified.items():
+        if key not in new_keys:
+            result.append(row)
     return result, len(verified), len(new_data) - len(verified)
 
 
