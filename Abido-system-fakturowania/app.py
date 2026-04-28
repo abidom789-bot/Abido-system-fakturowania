@@ -199,7 +199,7 @@ def apply_sync_logic(existing_rows, new_data, has_address=False):
     verified = {
         row[0]: row
         for row in existing_rows
-        if len(row) > 2 and str(row[2]).strip() == "1"
+        if len(row) > 2 and str(row[2]).strip() in ("1", "2")
     }
     new_keys = {item["key"] for item in new_data}
     result = []
