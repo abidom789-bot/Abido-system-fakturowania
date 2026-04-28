@@ -152,20 +152,37 @@ def read_all_sections(worksheet):
     return sections
 
 
+SEP_COLORS = {
+    SEP_KOSZTOWE: {"red": 0.90, "green": 0.22, "blue": 0.22},  # czerwony
+    SEP_SPRZEDAZ: {"red": 0.18, "green": 0.65, "blue": 0.32},  # zielony
+    SEP_WLASC:    {"red": 0.95, "green": 0.55, "blue": 0.10},  # pomaranczowy
+}
+
+
 def rebuild_sheet(worksheet, sections):
     """
     Zapisuje caly arkusz w poprawnej kolejnosci sekcji:
-    Header → Kosztowe → Wlasciciele → Sprzedaz.
-    Pomija puste sekcje.
+    Header → Kosztowe → Sprzedaz → Wlasciciele.
+    Pomija puste sekcje. Koloruje wiersze separatorow.
     """
     all_new = [HEADER_ROW]
+    sep_row_nums = {}  # sep -> numer wiersza (1-based)
     for sep in SECTION_ORDER:
         if sections[sep]:
             all_new.append([sep, "", "", ""])
+            sep_row_nums[sep] = len(all_new)  # aktualny ostatni wiersz
             all_new.extend(sections[sep])
     worksheet.clear()
     if all_new:
         worksheet.update("A1", all_new)
+    for sep, row_num in sep_row_nums.items():
+        worksheet.format(f"A{row_num}:F{row_num}", {
+            "backgroundColor": SEP_COLORS[sep],
+            "textFormat": {
+                "bold": True,
+                "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
+            },
+        })
 
 
 def apply_sync_logic(existing_rows, new_data, has_address=False):
