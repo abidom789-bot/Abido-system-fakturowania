@@ -1,11 +1,16 @@
 import io
+import os
 import re
+import calendar
+import unicodedata
 import xlrd
 import streamlit as st
 import gspread
 import pdfplumber
+from datetime import date
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 
 # ----------------------------------------------------------------
 # KONFIGURACJA
@@ -17,7 +22,7 @@ SPREADSHEET_ID       = "1oFgjTnx6JwjD6j1pvRhcfSmd-1IwP2l3nLsw-8qv8a0"
 # ----------------------------------------------------------------
 
 SCOPES = [
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
@@ -109,7 +114,7 @@ def list_fvs_folders(service):
 def parse_fvs_folder(folder_name):
     """
     Format: [FVS] Imie Nazwisko | Adres | Cena | DataOd-DataDo
-    Zwraca: name, address, price
+    Zwraca: name, address, price, dates
     """
     text = folder_name.replace("[FVS]", "").strip()
     parts = [p.strip() for p in text.split("|")]
@@ -117,7 +122,437 @@ def parse_fvs_folder(folder_name):
         "name":    parts[0] if len(parts) > 0 else "",
         "address": parts[1] if len(parts) > 1 else "",
         "price":   parts[2] if len(parts) > 2 else "",
+        "dates":   parts[3] if len(parts) > 3 else "",
     }
+
+
+# ----------------------------------------------------------------
+# GENEROWANIE FAKTUR SPRZEDAZY PDF
+# ----------------------------------------------------------------
+
+SELLER_NAME    = "ABIDO SP. Z O.O."
+SELLER_ADDR1   = "ul. Henryka Sienkiewicza 85/87"
+SELLER_ADDR2   = "90-057 Łódź"
+SELLER_NIP     = "NIP: 7252283544"
+SELLER_ACCOUNT = "Nr konta: 98 1870 1045 2078 1071 3878 0001"
+FAKTURY_SPRZEDAZY_FOLDER = "Faktury-sprzedazy"
+
+_PDF_FONTS_CACHED: dict = {}
+
+
+def _get_pdf_fonts():
+    """Rejestruje czcionki DejaVu (z systemu lub /tmp). Zwraca (regular, bold)."""
+    global _PDF_FONTS_CACHED
+    if _PDF_FONTS_CACHED:
+        return _PDF_FONTS_CACHED["reg"], _PDF_FONTS_CACHED["bold"]
+
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.pdfbase.pdfmetrics import registerFontFamily
+
+    FONT_DIRS = [
+        "/usr/share/fonts/truetype/dejavu",
+        "/usr/share/fonts/dejavu",
+        "/tmp",
+    ]
+
+    def find_font(fname):
+        for d in FONT_DIRS:
+            p = os.path.join(d, fname)
+            if os.path.exists(p):
+                return p
+        return None
+
+    reg_path  = find_font("DejaVuSans.ttf")
+    bold_path = find_font("DejaVuSans-Bold.ttf")
+
+    if not reg_path:
+        import urllib.request
+        for fname, url in [
+            ("DejaVuSans.ttf",
+             "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf"),
+            ("DejaVuSans-Bold.ttf",
+             "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans-Bold.ttf"),
+        ]:
+            dst = f"/tmp/{fname}"
+            if not os.path.exists(dst):
+                urllib.request.urlretrieve(url, dst)
+        reg_path  = "/tmp/DejaVuSans.ttf"
+        bold_path = "/tmp/DejaVuSans-Bold.ttf"
+
+    try:
+        pdfmetrics.registerFont(TTFont("DejaVu", reg_path))
+        pdfmetrics.registerFont(TTFont("DejaVu-Bold", bold_path or reg_path))
+        registerFontFamily("DejaVu", normal="DejaVu", bold="DejaVu-Bold",
+                           italic="DejaVu", boldItalic="DejaVu-Bold")
+        _PDF_FONTS_CACHED = {"reg": "DejaVu", "bold": "DejaVu-Bold"}
+    except Exception:
+        _PDF_FONTS_CACHED = {"reg": "Helvetica", "bold": "Helvetica-Bold"}
+
+    return _PDF_FONTS_CACHED["reg"], _PDF_FONTS_CACHED["bold"]
+
+
+def _parse_contract_start(dates_str):
+    """Parsuje date poczatku umowy z formatu 'D.M.YYYY-D.M.YYYY'. Zwraca date lub None."""
+    if not dates_str:
+        return None
+    m = re.match(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", dates_str.strip())
+    if not m:
+        return None
+    try:
+        return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+    except ValueError:
+        return None
+
+
+def _normalize_name_for_filename(name):
+    """Normalizuje nazwe do uzycia w nazwie pliku: male litery, bez polskich znakow, _ zamiast spacji."""
+    nfkd = unicodedata.normalize("NFKD", name)
+    ascii_str = nfkd.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "_", ascii_str.lower()).strip("_")
+
+
+def _format_pln(amount):
+    """Formatuje kwote jako polski string: 1 150,00 PLN"""
+    formatted = f"{amount:,.2f}".replace(",", " ").replace(".", ",")
+    return f"{formatted} PLN"
+
+
+def _amount_words_pl(amount):
+    """Kwota slownie po polsku."""
+    try:
+        from num2words import num2words
+        whole = int(round(amount))
+        gr    = round((amount - int(amount)) * 100)
+        text  = num2words(whole, lang="pl")
+        return f"{text} złotych {gr:02d}/100"
+    except Exception:
+        return f"{amount:.2f} PLN"
+
+
+def build_invoice_pdf_bytes(invoice_data):
+    """Generuje jedna fakture sprzedazy jako bajty PDF."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_RIGHT, TA_CENTER
+
+    fn, fnb = _get_pdf_fonts()
+
+    def ps(name, **kw):
+        base = {"fontName": fn, "fontSize": 9, "leading": 13, "spaceAfter": 0}
+        base.update(kw)
+        return ParagraphStyle(name, **base)
+
+    s_n   = ps("n")
+    s_r   = ps("r",  alignment=TA_RIGHT)
+    s_c   = ps("c",  alignment=TA_CENTER)
+    s_rb  = ps("rb", fontName=fnb, alignment=TA_RIGHT)
+    s_cb  = ps("cb", fontName=fnb, alignment=TA_CENTER)
+    s_sm  = ps("sm", fontSize=7.5, leading=10,
+               textColor=colors.Color(0.35, 0.35, 0.35))
+    s_ttl = ps("ttl", fontName=fnb, fontSize=16, leading=20)
+    s_wb  = ps("wb", fontName=fnb, fontSize=13, leading=18,
+               textColor=colors.white)
+    s_wn  = ps("wn", textColor=colors.white)
+
+    inv     = invoice_data
+    amt     = inv["amount"]
+    amt_str = _format_pln(amt)
+
+    GREY  = colors.Color(0.90, 0.90, 0.90)
+    DARK  = colors.Color(0.15, 0.15, 0.15)
+    BDR   = colors.Color(0.70, 0.70, 0.70)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=2*cm, rightMargin=2*cm,
+                            topMargin=2*cm, bottomMargin=2*cm)
+    W = A4[0] - 4*cm  # ~481 pt
+
+    story = []
+
+    # ── 1. Naglowek ───────────────────────────────────────────────────
+    hdr = Table([[
+        Paragraph("FAKTURA", s_ttl),
+        Paragraph(
+            f"<b>{inv['invoice_nr']}</b><br/>"
+            f"Data wystawienia: {inv['issue_date'].strftime('%d.%m.%Y')}<br/>"
+            f"Data sprzedaży: {inv['sale_date'].strftime('%d.%m.%Y')}",
+            s_r
+        ),
+    ]], colWidths=[W * 0.5, W * 0.5])
+    hdr.setStyle(TableStyle([
+        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+        ("LINEBELOW",    (0, 0), (-1,  0), 1.5, colors.black),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 8),
+    ]))
+    story.append(hdr)
+    story.append(Spacer(1, 0.35 * cm))
+
+    # ── 2. Sprzedawca / Nabywca ───────────────────────────────────────
+    seller = (
+        f"<b>SPRZEDAWCA</b><br/><b>{SELLER_NAME}</b><br/>"
+        f"{SELLER_ADDR1}<br/>{SELLER_ADDR2}<br/>"
+        f"{SELLER_NIP}<br/>{SELLER_ACCOUNT}"
+    )
+    buyer = f"<b>NABYWCA</b><br/><b>{inv['buyer_name']}</b>"
+
+    parties = Table(
+        [[Paragraph(seller, s_n), Paragraph(buyer, s_n)]],
+        colWidths=[W * 0.55, W * 0.45]
+    )
+    parties.setStyle(TableStyle([
+        ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+        ("BOX",          (0, 0), ( 0,  0), 0.5, BDR),
+        ("BOX",          (1, 0), ( 1,  0), 0.5, BDR),
+        ("BACKGROUND",   (0, 0), ( 0,  0), GREY),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING",   (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 8),
+    ]))
+    story.append(parties)
+    story.append(Spacer(1, 0.4 * cm))
+
+    # ── 3. Opis uslugi ────────────────────────────────────────────────
+    svc_desc = (
+        f"Wynajem pokoju w lokalu mieszkalnym na cele mieszkaniowe"
+        f" — {inv['service_address']}"
+    )
+    svc = Table(
+        [
+            [Paragraph("<b>Opis usługi</b>", ps("bh", fontName=fnb)),
+             Paragraph("<b>Ilość</b>", s_cb),
+             Paragraph("<b>J.m.</b>", s_cb),
+             Paragraph("<b>Cena jedn.</b>", s_rb),
+             Paragraph("<b>Wartość brutto</b>", s_rb)],
+            [Paragraph(svc_desc, s_n),
+             Paragraph("1,00", s_c),
+             Paragraph("szt.", s_c),
+             Paragraph(amt_str, s_r),
+             Paragraph(amt_str, s_r)],
+        ],
+        colWidths=[W * 0.44, W * 0.12, W * 0.08, W * 0.18, W * 0.18]
+    )
+    svc.setStyle(TableStyle([
+        ("BACKGROUND",   (0, 0), (-1, 0), GREY),
+        ("BOX",          (0, 0), (-1,-1), 0.5, BDR),
+        ("INNERGRID",    (0, 0), (-1,-1), 0.25, BDR),
+        ("VALIGN",       (0, 0), (-1,-1), "MIDDLE"),
+        ("LEFTPADDING",  (0, 0), (-1,-1), 6),
+        ("RIGHTPADDING", (0, 0), (-1,-1), 6),
+        ("TOPPADDING",   (0, 0), (-1,-1), 5),
+        ("BOTTOMPADDING",(0, 0), (-1,-1), 5),
+    ]))
+    story.append(svc)
+    story.append(Spacer(1, 0.35 * cm))
+
+    # ── 4. Tabela kwot ────────────────────────────────────────────────
+    amts = Table(
+        [
+            [Paragraph("Wartość netto:", s_r),     Paragraph(amt_str, s_r)],
+            [Paragraph("Stawka VAT:", s_r),         Paragraph("zwolniony", s_r)],
+            [Paragraph("Kwota VAT:", s_r),          Paragraph(_format_pln(0), s_r)],
+            [Paragraph("<b>Wartość brutto:</b>", s_rb),
+             Paragraph(f"<b>{amt_str}</b>", s_rb)],
+        ],
+        colWidths=[W * 0.72, W * 0.28]
+    )
+    amts.setStyle(TableStyle([
+        ("BOX",          (0, 0), (-1,-1), 0.5, BDR),
+        ("LINEABOVE",    (0, 3), (-1, 3), 0.5, BDR),
+        ("BACKGROUND",   (0, 3), (-1, 3), GREY),
+        ("RIGHTPADDING", (0, 0), (-1,-1), 8),
+        ("LEFTPADDING",  (0, 0), (-1,-1), 6),
+        ("TOPPADDING",   (0, 0), (-1,-1), 4),
+        ("BOTTOMPADDING",(0, 0), (-1,-1), 4),
+    ]))
+    story.append(amts)
+    story.append(Spacer(1, 0.4 * cm))
+
+    # ── 5. Info platnosci ─────────────────────────────────────────────
+    story.append(Paragraph(
+        f"Metoda płatności: <b>{inv['payment_method']}</b>"
+        f"   |   Termin płatności: <b>{inv['payment_deadline'].strftime('%d.%m.%Y')}</b>",
+        s_n
+    ))
+    story.append(Spacer(1, 0.3 * cm))
+
+    # ── 6. Podstawa zwolnienia VAT ────────────────────────────────────
+    story.append(Paragraph(
+        "Podstawa zwolnienia: Zwolnienie z VAT na podstawie art. 43 ust. 1 pkt 36 "
+        "ustawy z dnia 11 marca 2004 r. o podatku od towarów i usług — "
+        "wynajem lokali mieszkalnych na cele mieszkaniowe.",
+        s_sm
+    ))
+    story.append(Spacer(1, 0.5 * cm))
+
+    # ── 7. DO ZAPLATY ─────────────────────────────────────────────────
+    words = _amount_words_pl(amt)
+    zapł  = Table(
+        [[Paragraph(f"DO ZAPŁATY: {amt_str}", s_wb)],
+         [Paragraph(f"słownie: {words}", s_wn)]],
+        colWidths=[W]
+    )
+    zapł.setStyle(TableStyle([
+        ("BACKGROUND",   (0, 0), (-1,-1), DARK),
+        ("LEFTPADDING",  (0, 0), (-1,-1), 12),
+        ("RIGHTPADDING", (0, 0), (-1,-1), 12),
+        ("TOPPADDING",   (0, 0), ( 0, 0), 10),
+        ("BOTTOMPADDING",(0, 0), ( 0, 0), 3),
+        ("TOPPADDING",   (0, 1), ( 0, 1), 3),
+        ("BOTTOMPADDING",(0, 1), ( 0, 1), 10),
+    ]))
+    story.append(zapł)
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+def merge_pdf_bytes(pdf_bytes_list):
+    """Scala liste bajtow PDF w jeden plik PDF."""
+    from pypdf import PdfWriter, PdfReader
+    writer = PdfWriter()
+    for pdf_b in pdf_bytes_list:
+        reader = PdfReader(io.BytesIO(pdf_b))
+        for page in reader.pages:
+            writer.add_page(page)
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+def get_or_create_subfolder(service, parent_id, folder_name):
+    """Znajduje lub tworzy podfolder na Drive. Zwraca ID folderu."""
+    folder = find_subfolder(service, parent_id, folder_name)
+    if folder:
+        return folder["id"]
+    metadata = {
+        "name": folder_name,
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": [parent_id],
+    }
+    return service.files().create(body=metadata, fields="id").execute()["id"]
+
+
+def upload_file_to_drive(service, folder_id, filename, content_bytes,
+                         mimetype="application/pdf"):
+    """Wgrywa bajty jako plik na Drive. Zastepuje istniejacy plik o tej samej nazwie."""
+    q = (f"'{folder_id}' in parents and name = '{filename}' "
+         "and trashed = false")
+    existing = (service.files().list(q=q, fields="files(id)")
+                .execute().get("files", []))
+    for f in existing:
+        service.files().delete(fileId=f["id"]).execute()
+
+    media = MediaIoBaseUpload(io.BytesIO(content_bytes), mimetype=mimetype)
+    service.files().create(
+        body={"name": filename, "parents": [folder_id]},
+        media_body=media, fields="id"
+    ).execute()
+
+
+def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
+    """
+    Generuje PDF faktur sprzedazy dla wszystkich wierszy sekcji SPRZEDAZ.
+    Wgrywa poszczegolne PDFy + scalony plik do folderu Faktury-sprzedazy.
+    Zwraca (liczba_wygenerowanych, liczba_bledow).
+    """
+    month = int(subfolder_name[:2])
+    year  = int(subfolder_name[2:])
+    last_day         = calendar.monthrange(year, month)[1]
+    sale_date        = date(year, month, last_day)
+    default_issue    = date(year, month, 1)
+    payment_deadline = sale_date
+
+    # Dane folderow FVS — do odczytu daty poczatku umowy
+    fvs_folders = list_fvs_folders(drive_service)
+    fvs_by_name = {}
+    for f in fvs_folders:
+        d = parse_fvs_folder(f["name"])
+        fvs_by_name[d["name"]] = d
+
+    # Wiersze sekcji SPRZEDAZ
+    sections = read_all_sections(worksheet)
+    rows = sections[SEP_SPRZEDAZ]
+    if not rows:
+        return 0, 0
+
+    # Folder docelowy na Drive
+    output_folder_id = get_or_create_subfolder(
+        drive_service, FOLDER_ID, FAKTURY_SPRZEDAZY_FOLDER
+    )
+
+    _get_pdf_fonts()  # rejestracja czcionek przed generowaniem
+
+    pdf_bytes_list = []
+    count  = 0
+    errors = 0
+
+    for num, row in enumerate(rows, 1):
+        name       = row[0] if len(row) > 0 else ""
+        amount_str = row[1] if len(row) > 1 else ""
+        address    = row[3] if len(row) > 3 else ""
+        klucz      = row[4] if len(row) > 4 else ""
+
+        if not name:
+            continue
+
+        # Kwota (zawsze dodatnia na fakturze)
+        try:
+            amount = abs(float(
+                str(amount_str).replace(",", ".").replace(" ", "")
+            ))
+        except (ValueError, TypeError):
+            amount = 0.0
+
+        # Data wystawienia i ewentualna korekta proporcjonalna
+        issue_date = default_issue
+        fvs = fvs_by_name.get(name)
+        if fvs and fvs.get("dates"):
+            contract_start = _parse_contract_start(fvs["dates"])
+            if (contract_start
+                    and contract_start.year == year
+                    and contract_start.month == month
+                    and contract_start.day > 1):
+                issue_date = contract_start
+                days_remaining = last_day - contract_start.day + 1
+                amount = round(amount * days_remaining / last_day, 2)
+
+        payment_method = "Gotówka" if klucz == "prz_naj_rk_kp" else "Przelew"
+        invoice_nr     = f"FVS {year} {month:02d} {num:02d} T"
+        name_norm      = _normalize_name_for_filename(name)
+        filename       = f"fvs_{year}_{month:02d}_{num:02d}_t_{name_norm}.pdf"
+
+        try:
+            pdf_b = build_invoice_pdf_bytes({
+                "invoice_nr":       invoice_nr,
+                "issue_date":       issue_date,
+                "sale_date":        sale_date,
+                "buyer_name":       name,
+                "service_address":  address,
+                "amount":           amount,
+                "payment_method":   payment_method,
+                "payment_deadline": payment_deadline,
+            })
+            pdf_bytes_list.append(pdf_b)
+            upload_file_to_drive(drive_service, output_folder_id, filename, pdf_b)
+            count += 1
+        except Exception:
+            errors += 1
+
+    # Scalony PDF
+    if pdf_bytes_list:
+        merged = merge_pdf_bytes(pdf_bytes_list)
+        upload_file_to_drive(
+            drive_service, output_folder_id,
+            f"Fs_najemcy_{subfolder_name}.pdf", merged
+        )
+
+    return count, errors
 
 
 SECTION_ORDER = [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC, SEP_NIEZNANE]
@@ -630,6 +1065,10 @@ with right_col:
         use_container_width=True,
         type="primary",
     )
+    btn_generuj_pdf = st.button(
+        "Generuj faktury sprzedazy PDF",
+        use_container_width=True,
+    )
 
 st.markdown("---")
 paruj_col, status_col = st.columns(2)
@@ -842,6 +1281,42 @@ if btn_sprzedaz:
                     [{"Najemca": t["name"], "Kwota": t["price"], "Adres": t["address"]}
                      for t in tenants],
                     use_container_width=True,
+                )
+        except Exception as e:
+            st.error(f"Wystapil blad: {e}")
+
+# ----------------------------------------------------------------
+# AKCJA: Generuj faktury sprzedazy PDF
+# ----------------------------------------------------------------
+if btn_generuj_pdf:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu przed generowaniem.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds         = get_credentials()
+            drive_service = build("drive", "v3", credentials=creds)
+            client        = gspread.authorize(creds)
+
+            with st.spinner("Otwieram arkusz..."):
+                worksheet = get_or_create_worksheet(
+                    client.open_by_key(SPREADSHEET_ID), name
+                )
+
+            with st.spinner("Generuje faktury PDF i wgrywam na Drive..."):
+                count, errors = generate_invoice_pdfs(drive_service, worksheet, name)
+
+            if count == 0 and errors == 0:
+                st.warning("Brak wierszy w sekcji FAKTURY SPRZEDAZY NAJEMCOM.")
+            elif errors == 0:
+                st.success(
+                    f"Gotowe! Wygenerowano i wgrano {count} faktur PDF "
+                    f"oraz scalony plik do folderu '{FAKTURY_SPRZEDAZY_FOLDER}'."
+                )
+            else:
+                st.warning(
+                    f"Wygenerowano {count} faktur. Bledy: {errors}. "
+                    "Sprawdz dane w arkuszu."
                 )
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
