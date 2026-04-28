@@ -106,7 +106,7 @@ def parse_fvs_folder(folder_name):
     }
 
 
-SECTION_ORDER = [SEP_KOSZTOWE, SEP_WLASC, SEP_SPRZEDAZ]
+SECTION_ORDER = [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]
 
 
 def get_or_create_worksheet(spreadsheet, sheet_name):
