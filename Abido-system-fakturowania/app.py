@@ -235,17 +235,18 @@ def sync_sprzedaz(worksheet, tenants_data):
     return skipped, added
 
 
-def count_sheet_statuses(credentials, spreadsheet_id, sheet_name):
+def count_kosztowe_statuses(credentials, spreadsheet_id, sheet_name):
+    """Liczy tylko wiersze z sekcji KOSZTOWE w arkuszu."""
     client = gspread.authorize(credentials)
     spreadsheet = client.open_by_key(spreadsheet_id)
     try:
         worksheet = spreadsheet.worksheet(sheet_name)
     except gspread.exceptions.WorksheetNotFound:
         return None
-    all_rows = worksheet.get_all_values()
+    rows = read_all_sections(worksheet)[SEP_KOSZTOWE]
     counts = {"0": 0, "1": 0, "inne": 0}
-    for row in all_rows[1:]:
-        if not row or not row[0] or row[0].startswith("---"):
+    for row in rows:
+        if not row or not row[0]:
             continue
         status = str(row[2]).strip() if len(row) > 2 else ""
         if status == "0":
@@ -276,23 +277,29 @@ with col2:
         "Miesiac (np. 032026)",
         placeholder="wpisz nazwe podfolderu miesiacowego...",
     )
+
+left_col, right_col = st.columns(2)
+with left_col:
+    st.markdown("#### Faktury kosztowe")
     btn_czytaj = st.button(
-        "Zaczytaj faktury kosztowe do Google Sheets",
+        "Zaczytaj faktury kosztowe",
         use_container_width=True,
         type="primary",
     )
+    btn_sprawdz = st.button(
+        "Sprawdz stan faktur kosztowych",
+        use_container_width=True,
+    )
+with right_col:
+    st.markdown("#### Faktury sprzedazy")
     btn_sprzedaz = st.button(
         "Tworz wstepne wiersze faktur sprzedazy",
         use_container_width=True,
         type="primary",
     )
-    btn_sprawdz = st.button(
-        "Sprawdz ilosc pozycji",
-        use_container_width=True,
-    )
 
 # ----------------------------------------------------------------
-# AKCJA: Sprawdz ilosc pozycji
+# AKCJA: Sprawdz stan faktur kosztowych
 # ----------------------------------------------------------------
 if btn_sprawdz:
     if not subfolder_name.strip():
@@ -305,9 +312,9 @@ if btn_sprawdz:
             with st.spinner("Sprawdzam..."):
                 subfolder    = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, name)
                 drive_count  = len(list_pdfs_from_drive(drive_service, subfolder["id"])) if subfolder else 0
-                sheet_counts = count_sheet_statuses(creds, SPREADSHEET_ID, name)
+                sheet_counts = count_kosztowe_statuses(creds, SPREADSHEET_ID, name)
 
-            st.subheader(f"Wyniki dla: {name}")
+            st.subheader(f"Faktury kosztowe — {name}")
             col_a, col_b = st.columns(2)
             with col_a:
                 st.markdown("**Google Drive**")
@@ -315,17 +322,17 @@ if btn_sprawdz:
                     if not subfolder:
                         st.warning("Nie znaleziono folderu na Drive.")
                     else:
-                        st.metric("Pliki PDF w folderze", drive_count)
+                        st.metric("Pliki PDF", drive_count)
             with col_b:
-                st.markdown("**Google Sheets**")
+                st.markdown("**Google Sheets (sekcja kosztowa)**")
                 with st.container(border=True):
                     if sheet_counts is None:
                         st.warning("Brak arkusza o tej nazwie.")
                     else:
                         st.metric("Wierszy lacznie", sum(sheet_counts.values()))
                         st.markdown(
-                            f"- Status **0**: **{sheet_counts['0']}**  \n"
-                            f"- Status **1**: **{sheet_counts['1']}**  \n"
+                            f"- Niezweryfikowane (0): **{sheet_counts['0']}**  \n"
+                            f"- Zweryfikowane (1): **{sheet_counts['1']}**  \n"
                             f"- Inne: **{sheet_counts['inne']}**"
                         )
         except Exception as e:
