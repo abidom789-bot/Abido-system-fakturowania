@@ -280,6 +280,31 @@ def count_kosztowe_statuses(credentials, spreadsheet_id, sheet_name):
     return counts
 
 
+def count_parowanie_statuses(credentials, spreadsheet_id, sheet_name):
+    """Liczy wiersze wg statusu i sparowania, per sekcja."""
+    client = gspread.authorize(credentials)
+    spreadsheet = client.open_by_key(spreadsheet_id)
+    try:
+        worksheet = spreadsheet.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        return None
+    sections = read_all_sections(worksheet)
+    result = {}
+    for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
+        counts = {"s0": 0, "s1_bez": 0, "s1_para": 0, "s2": 0}
+        for row in sections[sep]:
+            status = str(row[2]).strip() if len(row) > 2 else ""
+            has_pair = len(row) > 5 and str(row[5]).strip() != ""
+            if status == "0":
+                counts["s0"] += 1
+            elif status == "1":
+                counts["s1_para" if has_pair else "s1_bez"] += 1
+            elif status == "2":
+                counts["s2"] += 1
+        result[sep] = counts
+    return result
+
+
 # ----------------------------------------------------------------
 # PAROWANIE WYCIAGU BANKOWEGO
 # ----------------------------------------------------------------
@@ -596,11 +621,18 @@ with right_col:
     )
 
 st.markdown("---")
-btn_paruj = st.button(
-    "Paruj wyciag bankowy z arkuszem",
-    use_container_width=True,
-    type="primary",
-)
+paruj_col, status_col = st.columns(2)
+with paruj_col:
+    btn_paruj = st.button(
+        "Paruj wyciag bankowy z arkuszem",
+        use_container_width=True,
+        type="primary",
+    )
+with status_col:
+    btn_status_parowania = st.button(
+        "Status parowania",
+        use_container_width=True,
+    )
 
 # ----------------------------------------------------------------
 # AKCJA: Paruj wyciag bankowy
@@ -640,6 +672,39 @@ if btn_paruj:
                     f"Gotowe! Sparowano: {sparowane} pozycji | "
                     f"Niesparowane z wyciagu: {niesparowane}"
                 )
+        except Exception as e:
+            st.error(f"Wystapil blad: {e}")
+
+# ----------------------------------------------------------------
+# AKCJA: Status parowania
+# ----------------------------------------------------------------
+if btn_status_parowania:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu przed sprawdzeniem.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds = get_credentials()
+            with st.spinner("Czytam arkusz..."):
+                data = count_parowanie_statuses(creds, SPREADSHEET_ID, name)
+            if data is None:
+                st.warning(f"Brak arkusza '{name}'.")
+            else:
+                st.subheader(f"Status parowania — {name}")
+                SEKCJE = {
+                    SEP_KOSZTOWE: "Kosztowe",
+                    SEP_SPRZEDAZ: "Sprzedaz",
+                    SEP_WLASC:    "Wlasciciele",
+                }
+                rows = [
+                    {"Wiersz": "Status 0 — niezweryfikowane",         **{v: data[k]["s0"]     for k, v in SEKCJE.items()}},
+                    {"Wiersz": "Status 1 — bez pary z wyciagiem",     **{v: data[k]["s1_bez"] for k, v in SEKCJE.items()}},
+                    {"Wiersz": "Status 1 — sparowane (czeka na '2')", **{v: data[k]["s1_para"]for k, v in SEKCJE.items()}},
+                    {"Wiersz": "Status 2 — zatwierdzone",             **{v: data[k]["s2"]     for k, v in SEKCJE.items()}},
+                ]
+                for r in rows:
+                    r["Razem"] = r["Kosztowe"] + r["Sprzedaz"] + r["Wlasciciele"]
+                st.dataframe(rows, use_container_width=True, hide_index=True)
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
