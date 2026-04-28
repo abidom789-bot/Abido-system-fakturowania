@@ -106,6 +106,9 @@ def parse_fvs_folder(folder_name):
     }
 
 
+SECTION_ORDER = [SEP_KOSZTOWE, SEP_WLASC, SEP_SPRZEDAZ]
+
+
 def get_or_create_worksheet(spreadsheet, sheet_name):
     try:
         return spreadsheet.worksheet(sheet_name)
@@ -113,110 +116,76 @@ def get_or_create_worksheet(spreadsheet, sheet_name):
         return spreadsheet.add_worksheet(title=sheet_name, rows=500, cols=6)
 
 
-# ----------------------------------------------------------------
-# SYNC FAKTURY KOSZTOWE
-# Logika: przebuduj cala sekcje kosztowa od podstaw,
-#         zachowujac wiersze z C=1. Nie rusza sekcji ponizej.
-# ----------------------------------------------------------------
-def sync_kosztowe(worksheet, files_data):
+def read_all_sections(worksheet):
+    """
+    Czyta caly arkusz i zwraca slownik sekcji:
+    { SEP_KOSZTOWE: [rows...], SEP_SPRZEDAZ: [rows...], ... }
+    Wiersze separatorow sa pomijane.
+    """
     all_rows = worksheet.get_all_values()
-
-    # Znajdz indeksy separatorow (0-based)
-    sep_koszt_idx = None
-    next_sep_idx  = None
-    for i, row in enumerate(all_rows):
+    sections = {sep: [] for sep in SECTION_ORDER}
+    current  = None
+    for row in all_rows:
         val = row[0] if row else ""
-        if val == SEP_KOSZTOWE and sep_koszt_idx is None:
-            sep_koszt_idx = i
-        elif sep_koszt_idx is not None and val.startswith("---"):
-            next_sep_idx = i
-            break
+        if val in SECTION_ORDER:
+            current = val
+        elif current and val:
+            sections[current].append(row)
+    return sections
 
-    # Zbierz zweryfikowane wiersze (C=1) z sekcji kosztowej
-    verified = {}
-    if sep_koszt_idx is not None:
-        end = next_sep_idx if next_sep_idx else len(all_rows)
-        for row in all_rows[sep_koszt_idx + 1 : end]:
-            key    = row[0] if row else ""
-            status = row[2] if len(row) > 2 else ""
-            brutto = row[1] if len(row) > 1 else ""
-            if key and status == "1":
-                verified[key] = brutto
 
-    # Usun wiersze od naglowka do konca sekcji kosztowej (wlacznie z separatorem)
-    # Zachowaj tylko wiersze PONIZEJ sekcji kosztowej
-    rows_below = []
-    if next_sep_idx is not None:
-        rows_below = all_rows[next_sep_idx:]
-
-    # Zbuduj nowe wiersze kosztowe
-    new_cost_rows = []
-    for f in files_data:
-        key = f["key"]
-        if key in verified:
-            new_cost_rows.append([key, verified[key], "1", ""])
-        else:
-            new_cost_rows.append([key, f["brutto"], "0", ""])
-
-    # Wyczysc caly arkusz i zapisz od nowa
+def rebuild_sheet(worksheet, sections):
+    """
+    Zapisuje caly arkusz w poprawnej kolejnosci sekcji:
+    Header → Kosztowe → Wlasciciele → Sprzedaz.
+    Pomija puste sekcje.
+    """
+    all_new = [HEADER_ROW]
+    for sep in SECTION_ORDER:
+        if sections[sep]:
+            all_new.append([sep, "", "", ""])
+            all_new.extend(sections[sep])
     worksheet.clear()
-    all_new = [HEADER_ROW, [SEP_KOSZTOWE, "", "", ""]] + new_cost_rows + rows_below
-    worksheet.update("A1", all_new)
+    if all_new:
+        worksheet.update("A1", all_new)
 
-    skipped = len(verified)
-    added   = len(new_cost_rows) - skipped
+
+def apply_sync_logic(existing_rows, new_data, has_address=False):
+    """
+    Laczy istniejace zweryfikowane wiersze (C=1) z nowymi danymi.
+    Zwraca (nowe_wiersze, skipped, added).
+    """
+    verified = {
+        row[0]: row
+        for row in existing_rows
+        if len(row) > 2 and row[2] == "1"
+    }
+    result = []
+    for item in new_data:
+        key = item["key"]
+        if key in verified:
+            result.append(verified[key])
+        else:
+            addr = item.get("address", "") if has_address else ""
+            result.append([key, item.get("brutto", ""), "0", addr])
+    return result, len(verified), len(new_data) - len(verified)
+
+
+def sync_kosztowe(worksheet, files_data):
+    sections                  = read_all_sections(worksheet)
+    new_rows, skipped, added  = apply_sync_logic(sections[SEP_KOSZTOWE], files_data)
+    sections[SEP_KOSZTOWE]    = new_rows
+    rebuild_sheet(worksheet, sections)
     return skipped, added
 
 
-# ----------------------------------------------------------------
-# SYNC FAKTURY SPRZEDAZY NAJEMCOM
-# Dopisuje sekcje sprzedazy pod ostatnim wierszem kosztowym.
-# Zachowuje C=1. Nie rusza sekcji kosztowej.
-# ----------------------------------------------------------------
 def sync_sprzedaz(worksheet, tenants_data):
-    all_rows = worksheet.get_all_values()
-    col_a    = [r[0] if r else "" for r in all_rows]
-
-    # Znajdz separator sprzedazy
-    sep_idx = None
-    for i, val in enumerate(col_a):
-        if val == SEP_SPRZEDAZ:
-            sep_idx = i
-            break
-
-    # Zbierz zweryfikowane wiersze (C=1) w sekcji sprzedazy
-    verified = {}
-    if sep_idx is not None:
-        for row in all_rows[sep_idx + 1:]:
-            key    = row[0] if row else ""
-            status = row[2] if len(row) > 2 else ""
-            brutto = row[1] if len(row) > 1 else ""
-            addr   = row[3] if len(row) > 3 else ""
-            if key and status == "1":
-                verified[key] = {"brutto": brutto, "address": addr}
-
-    # Usun wszystko od separatora sprzedazy w dol
-    if sep_idx is not None:
-        rows_to_keep = all_rows[:sep_idx]
-    else:
-        rows_to_keep = all_rows
-
-    # Zbuduj nowe wiersze sprzedazy
-    new_rows = []
-    for t in tenants_data:
-        key = t["name"]
-        if key in verified:
-            new_rows.append([key, verified[key]["brutto"], "1", verified[key]["address"]])
-        else:
-            new_rows.append([key, t["price"], "0", t["address"]])
-
-    # Zapisz
-    all_new = rows_to_keep + [[SEP_SPRZEDAZ, "", "", ""]] + new_rows
-    worksheet.clear()
-    worksheet.update("A1", all_new)
-
-    skipped = len(verified)
-    added   = len(new_rows) - skipped
+    sections                  = read_all_sections(worksheet)
+    new_rows, skipped, added  = apply_sync_logic(
+        sections[SEP_SPRZEDAZ], tenants_data, has_address=True
+    )
+    sections[SEP_SPRZEDAZ]    = new_rows
+    rebuild_sheet(worksheet, sections)
     return skipped, added
 
 
