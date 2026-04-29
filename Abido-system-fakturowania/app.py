@@ -1240,7 +1240,7 @@ if btn_search:
                     hide_index=True,
                 )
             else:
-                st.info(f"Brak wyników dla „{q}" ({search_type.lower()}).")
+                st.info(f"Brak wynikow dla '{q}' ({search_type.lower()}).")
         except Exception as e:
             st.error(f"Błąd wyszukiwania: {e}")
 
