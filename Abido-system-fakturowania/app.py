@@ -1119,6 +1119,40 @@ def search_drive_items(service, query_text, search_type):
     return results
 
 
+def search_sheet_rows(spreadsheet, query_text, sheet_filter=None):
+    """
+    Szuka query_text we wszystkich wierszach arkusza Google Sheets.
+    sheet_filter: None lub '' = wszystkie zakladki; inaczej = konkretna zakladka.
+    Zwraca (wyniki: list[dict], nazwy_zakladek: list[str]).
+    """
+    q = query_text.strip().lower()
+    all_worksheets = spreadsheet.worksheets()
+    sheet_names = [ws.title for ws in all_worksheets]
+
+    if sheet_filter:
+        worksheets = [ws for ws in all_worksheets if ws.title == sheet_filter]
+    else:
+        worksheets = all_worksheets
+
+    results = []
+    for ws in worksheets:
+        for row in ws.get_all_values():
+            if not any(cell for cell in row):
+                continue
+            if row and _match_separator(row[0]):
+                continue
+            if row and row[0] == HEADER_ROW[0]:   # naglowek
+                continue
+            if any(q in str(cell).lower() for cell in row):
+                padded = row + [""] * max(0, 16 - len(row))
+                entry = {"Zakladka": ws.title}
+                for j, col in enumerate(HEADER_ROW):
+                    entry[col] = padded[j] if j < len(padded) else ""
+                results.append(entry)
+
+    return results, sheet_names
+
+
 # ----------------------------------------------------------------
 # INTERFEJS STREAMLIT
 # ----------------------------------------------------------------
@@ -1163,6 +1197,27 @@ with srch_type_col:
 with srch_btn_col:
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
     btn_search = st.button("🔍 Szukaj", use_container_width=True)
+
+st.markdown("")
+
+# ── Wyszukiwanie w Google Sheets ─────────────────────────────────────
+sh_q_col, sh_tab_col, sh_btn_col = st.columns([4.5, 1.5, 0.5])
+with sh_q_col:
+    sh_query = st.text_input(
+        "Szukaj w Sheets",
+        placeholder="Szukaj w Google Sheets (adres, nazwa, kwota...)...",
+        label_visibility="collapsed",
+    )
+with sh_tab_col:
+    sh_tab_options = ["Wszystkie"] + st.session_state.get("sheet_tab_names", [])
+    sh_tab_selected = st.selectbox(
+        "Zakladka",
+        sh_tab_options,
+        label_visibility="collapsed",
+    )
+with sh_btn_col:
+    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+    btn_sh_search = st.button("🔍 ", use_container_width=True, key="btn_sh_search")
 
 st.markdown("")
 
@@ -1247,6 +1302,33 @@ if btn_search:
                 st.info(f"Brak wynikow dla '{q}' ({search_type.lower()}).")
         except Exception as e:
             st.error(f"Błąd wyszukiwania: {e}")
+
+# ----------------------------------------------------------------
+# AKCJA: Search Sheets
+# ----------------------------------------------------------------
+if btn_sh_search:
+    q = sh_query.strip()
+    if not q:
+        st.warning("Wpisz frazę do wyszukania w arkuszu.")
+    else:
+        try:
+            creds  = get_credentials()
+            client = gspread.authorize(creds)
+            sp     = client.open_by_key(SPREADSHEET_ID)
+            sheet_filter = "" if sh_tab_selected == "Wszystkie" else sh_tab_selected
+            with st.spinner(f"Szukam '{q}' w arkuszu..."):
+                results, sheet_names = search_sheet_rows(sp, q, sheet_filter)
+            st.session_state["sheet_tab_names"] = sorted(sheet_names)
+            if results:
+                import pandas as pd
+                label = sh_tab_selected if sh_tab_selected != "Wszystkie" else "wszystkich zakladkach"
+                st.markdown(f"**Wyniki dla '{q}' w {label} ({len(results)} wierszy):**")
+                df = pd.DataFrame(results)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info(f"Brak wynikow dla '{q}'.")
+        except Exception as e:
+            st.error(f"Błąd wyszukiwania w arkuszu: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Paruj wyciag bankowy
