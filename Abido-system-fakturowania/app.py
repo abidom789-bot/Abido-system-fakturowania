@@ -1201,7 +1201,7 @@ with srch_btn_col:
 st.markdown("")
 
 # ── Wyszukiwanie w Google Sheets ─────────────────────────────────────
-sh_q_col, sh_tab_col, sh_btn_col = st.columns([4.5, 1.5, 0.5])
+sh_q_col, sh_tab_col, sh_btn_col = st.columns([5, 1.2, 0.5])
 with sh_q_col:
     sh_query = st.text_input(
         "Szukaj w Sheets",
@@ -1217,7 +1217,7 @@ with sh_tab_col:
     )
 with sh_btn_col:
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-    btn_sh_search = st.button("🔍 ", use_container_width=True, key="btn_sh_search")
+    btn_sh_search = st.button("🔍 Szukaj", use_container_width=True, key="btn_sh_search")
 
 st.markdown("")
 
