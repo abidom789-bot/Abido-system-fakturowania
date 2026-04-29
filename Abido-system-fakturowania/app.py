@@ -1067,59 +1067,75 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("System Fakturowania")
-st.markdown("---")
+st.markdown("""
+<style>
+/* Czerwona ramka dla kolumny Parowanie (3. kolumna w glownym bloku) */
+div[data-testid="stHorizontalBlock"]
+  > div[data-testid="stColumn"]:nth-child(3)
+  > div
+  > div[data-testid="stVerticalBlockBorderWrapper"] {
+    border-color: #cc2222 !important;
+    border-width: 2px !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
-col1, col2, col2b, col3 = st.columns([1, 1.6, 0.4, 1])
-with col2:
+st.title("System Fakturowania")
+
+# ── Wiersz: pole miesiaca + Wyswietl ex ────────────────────────────
+_, input_col, btn_ex_col, _ = st.columns([1, 1.6, 0.4, 1])
+with input_col:
     subfolder_name = st.text_input(
         "Miesiac (np. 032026)",
         placeholder="wpisz nazwe podfolderu miesiacowego...",
     )
-with col2b:
+with btn_ex_col:
     st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
     btn_wyswietl = st.button("Wyświetl ex", use_container_width=True)
 
-left_col, right_col = st.columns(2)
+st.markdown("")
+
+# ── Trzy kolumny z sekcjami ────────────────────────────────────────
+left_col, mid_col, right_col = st.columns(3)
+
 with left_col:
-    st.markdown("#### Faktury kosztowe")
-    btn_czytaj = st.button(
-        "Zaczytaj faktury kosztowe",
-        use_container_width=True,
-        type="primary",
-    )
-    btn_sprawdz = st.button(
-        "Sprawdz stan faktur kosztowych",
-        use_container_width=True,
-    )
+    with st.container(border=True):
+        st.markdown("#### Faktury kosztowe")
+        btn_czytaj = st.button(
+            "Zaczytaj faktury kosztowe",
+            use_container_width=True,
+            type="primary",
+        )
+        btn_sprawdz = st.button(
+            "Sprawdz stan faktur kosztowych",
+            use_container_width=True,
+        )
+
+with mid_col:
+    with st.container(border=True):
+        st.markdown("#### Faktury sprzedazy")
+        btn_sprzedaz = st.button(
+            "Tworz wstepne wiersze faktur sprzedazy",
+            use_container_width=True,
+            type="primary",
+        )
+        btn_generuj_pdf = st.button(
+            "Generuj faktury sprzedazy PDF",
+            use_container_width=True,
+        )
+
 with right_col:
-    st.markdown("#### Faktury sprzedazy")
-    btn_sprzedaz = st.button(
-        "Tworz wstepne wiersze faktur sprzedazy",
-        use_container_width=True,
-        type="primary",
-    )
-
-st.markdown("---")
-paruj_col, status_col = st.columns(2)
-with paruj_col:
-    btn_paruj = st.button(
-        "Paruj wyciag bankowy z arkuszem",
-        use_container_width=True,
-        type="primary",
-    )
-with status_col:
-    btn_status_parowania = st.button(
-        "Status parowania",
-        use_container_width=True,
-    )
-
-generuj_col, _ = st.columns([1, 1])
-with generuj_col:
-    btn_generuj_pdf = st.button(
-        "Generuj faktury sprzedazy PDF",
-        use_container_width=True,
-    )
+    with st.container(border=True):
+        st.markdown("#### Parowanie")
+        btn_paruj = st.button(
+            "Paruj wyciag bankowy z arkuszem",
+            use_container_width=True,
+            type="primary",
+        )
+        btn_status_parowania = st.button(
+            "Status parowania",
+            use_container_width=True,
+        )
 
 # ----------------------------------------------------------------
 # AKCJA: Paruj wyciag bankowy
