@@ -1233,7 +1233,7 @@ if btn_search:
                 results = search_drive_items(drv, q, search_type)
             if results:
                 import pandas as pd
-                st.markdown(f"**Wyniki dla „{q}" — {len(results)} {search_type.lower()}:**")
+                st.markdown(f"**Wyniki dla '{q}' ({len(results)} {search_type.lower()}):**")
                 st.dataframe(
                     pd.DataFrame(results),
                     use_container_width=True,
