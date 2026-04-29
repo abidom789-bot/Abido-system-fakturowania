@@ -445,8 +445,7 @@ def upload_file_to_drive(service, folder_id, filename, content_bytes,
 def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
     """
     Generuje PDF faktur sprzedazy dla wszystkich wierszy sekcji SPRZEDAZ.
-    Wgrywa poszczegolne PDFy + scalony plik do folderu Faktury-sprzedazy.
-    Zwraca (liczba_wygenerowanych, liczba_bledow).
+    Zwraca liste (filename, pdf_bytes) — bez wgrywania na Drive.
     """
     month = int(subfolder_name[:2])
     year  = int(subfolder_name[2:])
@@ -466,18 +465,11 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
     sections = read_all_sections(worksheet)
     rows = sections[SEP_SPRZEDAZ]
     if not rows:
-        return 0, 0
-
-    # Folder docelowy na Drive
-    output_folder_id = get_or_create_subfolder(
-        drive_service, FOLDER_ID, FAKTURY_SPRZEDAZY_FOLDER
-    )
+        return []
 
     _get_pdf_fonts()  # rejestracja czcionek przed generowaniem
 
-    pdf_bytes_list = []
-    count  = 0
-    errors = 0
+    results = []  # lista (filename, pdf_bytes)
 
     for num, row in enumerate(rows, 1):
         name       = row[0] if len(row) > 0 else ""
@@ -525,21 +517,11 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
                 "payment_method":   payment_method,
                 "payment_deadline": payment_deadline,
             })
-            pdf_bytes_list.append(pdf_b)
-            upload_file_to_drive(drive_service, output_folder_id, filename, pdf_b)
-            count += 1
+            results.append((filename, pdf_b))
         except Exception:
-            errors += 1
+            pass
 
-    # Scalony PDF
-    if pdf_bytes_list:
-        merged = merge_pdf_bytes(pdf_bytes_list)
-        upload_file_to_drive(
-            drive_service, output_folder_id,
-            f"Fs_najemcy_{subfolder_name}.pdf", merged
-        )
-
-    return count, errors
+    return results
 
 
 SECTION_ORDER = [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC, SEP_NIEZNANE]
@@ -1293,20 +1275,35 @@ if btn_generuj_pdf:
                     client.open_by_key(SPREADSHEET_ID), name
                 )
 
-            with st.spinner("Generuje faktury PDF i wgrywam na Drive..."):
-                count, errors = generate_invoice_pdfs(drive_service, worksheet, name)
+            with st.spinner("Generuje faktury PDF..."):
+                invoices = generate_invoice_pdfs(drive_service, worksheet, name)
 
-            if count == 0 and errors == 0:
+            if not invoices:
                 st.warning("Brak wierszy w sekcji FAKTURY SPRZEDAZY NAJEMCOM.")
-            elif errors == 0:
-                st.success(
-                    f"Gotowe! Wygenerowano i wgrano {count} faktur PDF "
-                    f"oraz scalony plik do folderu '{FAKTURY_SPRZEDAZY_FOLDER}'."
-                )
             else:
-                st.warning(
-                    f"Wygenerowano {count} faktur. Bledy: {errors}. "
-                    "Sprawdz dane w arkuszu."
+                st.success(f"Wygenerowano {len(invoices)} faktur. Pobierz ponizej.")
+
+                # Scalony PDF — jeden przycisk na calosc
+                merged_bytes    = merge_pdf_bytes([b for _, b in invoices])
+                merged_filename = f"Fs_najemcy_{name}.pdf"
+                st.download_button(
+                    f"Pobierz scalony PDF ({len(invoices)} faktur)",
+                    data=merged_bytes,
+                    file_name=merged_filename,
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary",
                 )
+
+                # Poszczegolne faktury
+                with st.expander("Poszczegolne faktury PDF"):
+                    for filename, pdf_bytes in invoices:
+                        st.download_button(
+                            filename,
+                            data=pdf_bytes,
+                            file_name=filename,
+                            mime="application/pdf",
+                            key=f"dl_{filename}",
+                        )
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
