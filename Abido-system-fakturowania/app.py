@@ -1388,30 +1388,72 @@ if btn_wyswietl:
                 st.error(f"Arkusz '{name}' nie istnieje.")
                 worksheet = None
             if worksheet:
-                COL_NAMES = [
-                    "Nazwa / Plik", "Kwota brutto", "Status", "Adres", "Data_umowy",
-                    "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
-                    "Kwota_raport_kasowy", "Data_ksiegowania", "wyciag_Tytul",
-                    "wyciag_Data_op", "wyciag_Rodzaj", "wyciag_Waluta",
-                    "wyciag_Nr_rachunku", "wyciag_Imie_Nazwisko", "Uwagi",
-                ]
                 sections = read_all_sections(worksheet)
-                LABELS = {
-                    SEP_KOSZTOWE: "Faktury kosztowe",
-                    SEP_SPRZEDAZ: "Faktury sprzedazy najemcom",
-                    SEP_WLASC:   "Wlasciciele i spoldzielnie",
-                    SEP_NIEZNANE: "Nieznane / niesparowane",
-                }
-                st.markdown(f"### Arkusz: {name}")
-                for sep in SECTION_ORDER:
-                    rows = sections.get(sep, [])
-                    label = LABELS.get(sep, sep)
-                    with st.expander(f"{label} ({len(rows)} wierszy)", expanded=True):
-                        if rows:
-                            padded = [r + [""] * (17 - len(r)) for r in rows]
-                            df_data = [dict(zip(COL_NAMES, r[:17])) for r in padded]
-                            st.dataframe(df_data, use_container_width=True)
-                        else:
-                            st.caption("(brak wierszy)")
+                st.session_state["ex_name"]     = name
+                st.session_state["ex_sections"] = sections
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
+
+EX_COL_NAMES = [
+    "Nazwa / Plik", "Kwota brutto", "Status", "Adres", "Data_umowy",
+    "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
+    "Kwota_raport_kasowy", "Data_ksiegowania", "wyciag_Tytul",
+    "wyciag_Data_op", "wyciag_Rodzaj", "wyciag_Waluta",
+    "wyciag_Nr_rachunku", "wyciag_Imie_Nazwisko", "Uwagi",
+]
+EX_READONLY = [c for c in EX_COL_NAMES if c not in ("Status", "Kwota brutto", "Uwagi")]
+EX_LABELS = {
+    SEP_KOSZTOWE: "Faktury kosztowe",
+    SEP_SPRZEDAZ: "Faktury sprzedazy najemcom",
+    SEP_WLASC:    "Wlasciciele i spoldzielnie",
+    SEP_NIEZNANE: "Nieznane / niesparowane",
+}
+
+if "ex_sections" in st.session_state:
+    ex_name     = st.session_state["ex_name"]
+    ex_sections = st.session_state["ex_sections"]
+
+    st.markdown(f"### Arkusz: {ex_name}")
+
+    edited = {}
+    for sep in SECTION_ORDER:
+        rows  = ex_sections.get(sep, [])
+        label = EX_LABELS.get(sep, sep)
+        with st.expander(f"{label} ({len(rows)} wierszy)", expanded=True):
+            if rows:
+                import pandas as pd
+                padded = [r + [""] * (17 - len(r)) for r in rows]
+                df = pd.DataFrame([dict(zip(EX_COL_NAMES, r[:17])) for r in padded])
+                df["Status"] = pd.to_numeric(df["Status"], errors="coerce").fillna(0).astype(int)
+                result_df = st.data_editor(
+                    df,
+                    key=f"editor_{sep}",
+                    use_container_width=True,
+                    disabled=EX_READONLY,
+                    hide_index=True,
+                    column_config={
+                        "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
+                    },
+                )
+                edited[sep] = result_df
+            else:
+                st.caption("(brak wierszy)")
+                edited[sep] = None
+
+    if st.button("Zapisz zmiany do Google Sheets", type="primary"):
+        try:
+            new_sections = {}
+            for sep in SECTION_ORDER:
+                df_ed = edited.get(sep)
+                if df_ed is not None:
+                    new_sections[sep] = df_ed.astype(str).replace("nan", "").values.tolist()
+                else:
+                    new_sections[sep] = []
+            creds = get_credentials()
+            client = gspread.authorize(creds)
+            worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(ex_name)
+            rebuild_sheet(worksheet, new_sections)
+            st.success("Zapisano zmiany!")
+            del st.session_state["ex_sections"]
+        except Exception as e:
+            st.error(f"Blad zapisu: {e}")
