@@ -517,7 +517,7 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
         name       = row[0] if len(row) > 0 else ""
         amount_str = row[1] if len(row) > 1 else ""
         address    = row[3] if len(row) > 3 else ""
-        klucz      = row[4] if len(row) > 4 else ""
+        klucz      = row[5] if len(row) > 5 else ""
 
         if not name:
             continue
@@ -677,8 +677,9 @@ def apply_sync_logic(existing_rows, new_data, has_address=False):
         if key in verified:
             result.append(verified[key])
         else:
-            addr = item.get("address", "") if has_address else ""
-            result.append([key, item.get("brutto", ""), "0", addr])
+            addr  = item.get("address", "") if has_address else ""
+            dates = item.get("dates",   "") if has_address else ""
+            result.append([key, item.get("brutto", ""), "0", addr, dates])
     # Zachowaj zweryfikowane wiersze ktorych plik zostal usuniety z Drive
     for key, row in verified.items():
         if key not in new_keys:
@@ -743,7 +744,7 @@ def count_parowanie_statuses(credentials, spreadsheet_id, sheet_name):
         counts = {"s0": 0, "s1_bez": 0, "s1_para": 0, "s2": 0}
         for row in sections[sep]:
             status = str(row[2]).strip() if len(row) > 2 else ""
-            has_pair = len(row) > 5 and str(row[5]).strip() != ""
+            has_pair = len(row) > 6 and str(row[6]).strip() != ""
             if status == "0":
                 counts["s0"] += 1
             elif status == "1":
@@ -953,19 +954,19 @@ def pair_transactions(candidates, transactions):
 
 def _build_paired_row(existing_row, tx, klucz, uwagi=""):
     """Uzupelnia wiersz arkusza danymi z transakcji bankowej."""
-    row = list(existing_row) + [""] * max(0, 16 - len(existing_row))
-    row[4]  = klucz
-    row[5]  = tx["kontrahent"].split("|")[0]
-    row[6]  = tx["kwota"]
-    row[7]  = ""   # raport kasowy — puste dla transakcji bankowych
-    row[8]  = tx["data_ks"]
-    row[9]  = tx["tytul"][:100]
-    row[10] = tx["data_op"]
-    row[11] = tx["rodzaj"]
-    row[12] = tx["waluta"]
-    row[13] = tx["nr_rachunku"]
-    row[14] = _extract_name_from_tx(tx)
-    row[15] = uwagi
+    row = list(existing_row) + [""] * max(0, 17 - len(existing_row))
+    row[5]  = klucz
+    row[6]  = tx["kontrahent"].split("|")[0]
+    row[7]  = tx["kwota"]
+    row[8]  = ""   # raport kasowy — puste dla transakcji bankowych
+    row[9]  = tx["data_ks"]
+    row[10] = tx["tytul"][:100]
+    row[11] = tx["data_op"]
+    row[12] = tx["rodzaj"]
+    row[13] = tx["waluta"]
+    row[14] = tx["nr_rachunku"]
+    row[15] = _extract_name_from_tx(tx)
+    row[16] = uwagi
     return row
 
 
@@ -973,7 +974,7 @@ def _build_unmatched_row(tx):
     """Buduje wiersz dla niesparowanej transakcji z wyciagu (A i B puste)."""
     klucz = "nieznany_out" if tx["kwota"] < 0 else "nieznany_in"
     return [
-        "", "", "", "",          # A=nazwa, B=kwota, C=status, D=adres
+        "", "", "", "", "",       # A=nazwa, B=kwota, C=status, D=adres, E=data_umowy
         klucz,
         tx["kontrahent"].split("|")[0],
         tx["kwota"],
@@ -1020,9 +1021,9 @@ def sync_parowanie(worksheet, transactions):
         else:
             # Brak pary — klucz ksiegowy + wyczysc kolumny wyciagu
             klucz = assign_klucz_ksiegowy(sep, None, row[1] if len(row) > 1 else "", row[0] if row else "")
-            r = list(row) + [""] * max(0, 16 - len(row))
-            r[4] = klucz
-            for col in range(5, 16):
+            r = list(row) + [""] * max(0, 17 - len(row))
+            r[5] = klucz
+            for col in range(6, 17):
                 r[col] = ""
             sections[sep][row_idx] = r
 
@@ -1044,7 +1045,7 @@ def sync_parowanie(worksheet, transactions):
 st.set_page_config(
     page_title="System Fakturowania",
     page_icon=":page_facing_up:",
-    layout="centered",
+    layout="wide",
 )
 
 st.title("System Fakturowania")
@@ -1287,7 +1288,7 @@ if btn_sprzedaz:
                     else 1
                 ))
                 tenants_data = [
-                    {"key": t["name"], "brutto": t["price"], "address": t["address"]}
+                    {"key": t["name"], "brutto": t["price"], "address": t["address"], "dates": t["dates"]}
                     for t in tenants
                 ]
 
@@ -1388,7 +1389,7 @@ if btn_wyswietl:
                 worksheet = None
             if worksheet:
                 COL_NAMES = [
-                    "Nazwa / Plik", "Kwota brutto", "Status", "Adres",
+                    "Nazwa / Plik", "Kwota brutto", "Status", "Adres", "Data_umowy",
                     "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
                     "Kwota_raport_kasowy", "Data_ksiegowania", "wyciag_Tytul",
                     "wyciag_Data_op", "wyciag_Rodzaj", "wyciag_Waluta",
@@ -1407,8 +1408,8 @@ if btn_wyswietl:
                     label = LABELS.get(sep, sep)
                     with st.expander(f"{label} ({len(rows)} wierszy)", expanded=True):
                         if rows:
-                            padded = [r + [""] * (16 - len(r)) for r in rows]
-                            df_data = [dict(zip(COL_NAMES, r[:16])) for r in padded]
+                            padded = [r + [""] * (17 - len(r)) for r in rows]
+                            df_data = [dict(zip(COL_NAMES, r[:17])) for r in padded]
                             st.dataframe(df_data, use_container_width=True)
                         else:
                             st.caption("(brak wierszy)")
