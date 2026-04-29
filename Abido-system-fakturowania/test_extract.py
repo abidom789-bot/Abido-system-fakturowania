@@ -23,6 +23,8 @@ EXPECTED = {
     "Netia zbiorcza 032026 5911178724_22_0.pdf":         "-129,00",
     "Pgnig Perzynskiego 032026 5681995_41_2026_f.pdf":   "-48,59",
     "Play naleczowska 032026 .pdf":                      "-138,84",
+    "Allegro Savinga 8.4.2026.pdf":                      "-339,45",
+    "Allegro Rejda 1.4.2026.pdf":                        "?",       # uzupełnij po weryfikacji
 }
 
 # ----------------------------------------------------------------
@@ -34,14 +36,17 @@ def extract_gross_amount(pdf_bytes):
 
     patterns = [
         # 1. "Do zapłaty" / "Pozostaje do zapłaty" / "Razem do zapłaty"
+        #    — pomijamy wynik 0,00 (Allegro: zapłacone przy zakupie)
         r"(?:razem\s+|pozostaje\s+)?do\s+zap[lł]aty[^\d]*?" + _NUM,
-        # 2. "Należność X,XX" — np. E.ON
+        # 2. "Wartość brutto X,XX" jako osobna linia (np. Allegro)
+        r"warto[śs][ćc]\s+brutto\s+" + _NUM,
+        # 3. "Należność X,XX" — np. E.ON
         r"nale[żz]no[śs][ćc]\s+" + _NUM,
-        # 3. "Razem brutto" / "Suma brutto" / "Ogółem brutto"
+        # 4. "Razem brutto" / "Suma brutto" / "Ogółem brutto"
         r"(?:razem|suma|og[oó][lł]em)\s+brutto[^\d]*?" + _NUM,
-        # 4. "Kwota brutto: X,XX" — wartość w osobnej linii po nagłówku
+        # 5. "Kwota brutto: X,XX"
         r"kwota\s+brutto\s*[:\-]\s*" + _NUM,
-        # 5. "Łączna kwota" / "Total"
+        # 6. "Łączna kwota" / "Total"
         r"(?:[lł][aą]czna\s+kwota|total)\s*[:\-]?\s*" + _NUM,
     ]
 
@@ -58,6 +63,8 @@ def extract_gross_amount(pdf_bytes):
             m = re.search(p, tl)
             if m:
                 val = m.group(1).strip().replace(" ", "")
+                if val in ("0,00", "0.00"):   # zapłacone z góry — szukaj dalej
+                    continue
                 return "-" + val
 
         # Ostatnia szansa: linia zaczynająca się od "Razem" z co najmniej 2 liczbami

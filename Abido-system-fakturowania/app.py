@@ -82,7 +82,10 @@ def extract_gross_amount(pdf_bytes):
     _NUM = r"([\d ]+[,.][\d]{2})"
     patterns = [
         # "Do zapłaty" / "Pozostaje do zapłaty" / "Razem do zapłaty"
+        #   — pomijamy 0,00 (Allegro: zapłacone przy zakupie)
         r"(?:razem\s+|pozostaje\s+)?do\s+zap[lł]aty[^\d]*?" + _NUM,
+        # "Wartość brutto X,XX" jako osobna linia (np. Allegro)
+        r"warto[śs][ćc]\s+brutto\s+" + _NUM,
         # "Należność X,XX" — np. E.ON
         r"nale[żz]no[śs][ćc]\s+" + _NUM,
         # "Razem brutto" / "Suma brutto" / "Ogółem brutto"
@@ -101,7 +104,10 @@ def extract_gross_amount(pdf_bytes):
         for p in patterns:
             m = re.search(p, tl)
             if m:
-                return "-" + m.group(1).strip().replace(" ", "")
+                val = m.group(1).strip().replace(" ", "")
+                if val in ("0,00", "0.00"):   # zapłacone z góry — szukaj dalej
+                    continue
+                return "-" + val
         # Ostatnia szansa: linia "Razem netto VAT brutto" — ostatnia liczba w linii
         for line in tl.splitlines():
             if re.match(r"\s*(?:\d+\.\s+)?razem\b", line):
