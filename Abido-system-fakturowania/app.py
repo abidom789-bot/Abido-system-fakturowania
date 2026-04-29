@@ -79,22 +79,35 @@ def download_pdf(service, file_id):
 
 
 def extract_gross_amount(pdf_bytes):
+    _NUM = r"([\d ]+[,.][\d]{2})"
     patterns = [
-        r"do\s+zap[lł]aty[^\d]*?([\d\s]+[,.][\d]{2})",
-        r"razem\s+brutto[^\d]*?([\d\s]+[,.][\d]{2})",
-        r"kwota\s+brutto[^\d]*?([\d\s]+[,.][\d]{2})",
-        r"[lł][aą]czna\s+kwota[^\d]*?([\d\s]+[,.][\d]{2})",
-        r"suma\s+brutto[^\d]*?([\d\s]+[,.][\d]{2})",
-        r"ogó?[lł]em\s+brutto[^\d]*?([\d\s]+[,.][\d]{2})",
-        r"total[^\d]*?([\d\s]+[,.][\d]{2})",
+        # "Do zapłaty" / "Pozostaje do zapłaty" / "Razem do zapłaty"
+        r"(?:razem\s+|pozostaje\s+)?do\s+zap[lł]aty[^\d]*?" + _NUM,
+        # "Należność X,XX" — np. E.ON
+        r"nale[żz]no[śs][ćc]\s+" + _NUM,
+        # "Razem brutto" / "Suma brutto" / "Ogółem brutto"
+        r"(?:razem|suma|og[oó][lł]em)\s+brutto[^\d]*?" + _NUM,
+        # "Kwota brutto: X,XX"
+        r"kwota\s+brutto\s*[:\-]\s*" + _NUM,
+        # "Łączna kwota" / "Total"
+        r"(?:[lł][aą]czna\s+kwota|total)\s*[:\-]?\s*" + _NUM,
     ]
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             text = "".join(page.extract_text() or "" for page in pdf.pages)
-        for pattern in patterns:
-            match = re.search(pattern, text.lower())
-            if match:
-                return "-" + match.group(1).strip().replace(" ", "")
+        if not text.strip():
+            return ""
+        tl = text.lower()
+        for p in patterns:
+            m = re.search(p, tl)
+            if m:
+                return "-" + m.group(1).strip().replace(" ", "")
+        # Ostatnia szansa: linia "Razem netto VAT brutto" — ostatnia liczba w linii
+        for line in tl.splitlines():
+            if re.match(r"\s*(?:\d+\.\s+)?razem\b", line):
+                nums = re.findall(r"\d+[,.]\d{2}", line)
+                if len(nums) >= 2:
+                    return "-" + nums[-1]
     except Exception:
         pass
     return ""
