@@ -1058,6 +1058,68 @@ def sync_parowanie(worksheet, transactions):
 
 
 # ----------------------------------------------------------------
+# SEARCH — wyszukiwanie na Google Drive
+# ----------------------------------------------------------------
+
+def _get_item_path(service, item_id, cache):
+    """Buduje pełną ścieżkę elementu na Drive przez przechodzenie po rodzicach."""
+    if item_id in cache:
+        return cache[item_id]
+    try:
+        meta = service.files().get(
+            fileId=item_id,
+            fields="name,parents",
+            supportsAllDrives=True,
+        ).execute()
+        name = meta.get("name", "?")
+        parents = meta.get("parents", [])
+        if not parents:
+            result = name
+        else:
+            parent_path = _get_item_path(service, parents[0], cache)
+            result = f"{parent_path}/{name}"
+    except Exception:
+        result = "?"
+    cache[item_id] = result
+    return result
+
+
+def search_drive_items(service, query_text, search_type):
+    """
+    Szuka plików lub folderów na Drive zawierających query_text w nazwie.
+    search_type: 'Pliki' lub 'Foldery'
+    Zwraca listę słowników {"Nazwa": ..., "Ścieżka": ...}
+    """
+    safe = query_text.replace("'", "\\'")
+    if search_type == "Foldery":
+        mime = "mimeType = 'application/vnd.google-apps.folder'"
+    else:
+        mime = "mimeType != 'application/vnd.google-apps.folder'"
+    q = f"name contains '{safe}' and {mime} and trashed = false"
+
+    resp = service.files().list(
+        q=q,
+        fields="files(id, name, parents)",
+        pageSize=50,
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    ).execute()
+
+    cache = {}
+    results = []
+    for item in resp.get("files", []):
+        name    = item["name"]
+        parents = item.get("parents", [])
+        if search_type == "Pliki":
+            path = _get_item_path(service, parents[0], cache) if parents else "/"
+        else:
+            path = _get_item_path(service, item["id"], cache)
+        results.append({"Nazwa": name, "Ścieżka": path})
+
+    return results
+
+
+# ----------------------------------------------------------------
 # INTERFEJS STREAMLIT
 # ----------------------------------------------------------------
 
@@ -1092,6 +1154,25 @@ with input_col:
 with btn_ex_col:
     st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
     btn_wyswietl = st.button("Wyświetl ex", use_container_width=True)
+
+# ── Wiersz: wyszukiwarka Drive ──────────────────────────────────────
+_, srch_input_col, srch_type_col, srch_btn_col, _ = st.columns([1, 1.6, 0.35, 0.25, 1])
+with srch_input_col:
+    search_query = st.text_input(
+        "Szukaj na Drive",
+        placeholder="wpisz nazwę pliku lub folderu...",
+        label_visibility="collapsed",
+    )
+with srch_type_col:
+    search_type = st.radio(
+        "Typ",
+        ["Pliki", "Foldery"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+with srch_btn_col:
+    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+    btn_search = st.button("🔍", use_container_width=True, help="Szukaj na Google Drive")
 
 st.markdown("")
 
@@ -1136,6 +1217,32 @@ with right_col:
             "Status parowania",
             use_container_width=True,
         )
+
+# ----------------------------------------------------------------
+# AKCJA: Search Drive
+# ----------------------------------------------------------------
+if btn_search:
+    q = search_query.strip()
+    if not q:
+        st.warning("Wpisz frazę do wyszukania.")
+    else:
+        try:
+            creds        = get_credentials()
+            drv          = build("drive", "v3", credentials=creds)
+            with st.spinner(f"Szukam '{q}' ({search_type.lower()})..."):
+                results = search_drive_items(drv, q, search_type)
+            if results:
+                import pandas as pd
+                st.markdown(f"**Wyniki dla „{q}" — {len(results)} {search_type.lower()}:**")
+                st.dataframe(
+                    pd.DataFrame(results),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info(f"Brak wyników dla „{q}" ({search_type.lower()}).")
+        except Exception as e:
+            st.error(f"Błąd wyszukiwania: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Paruj wyciag bankowy
