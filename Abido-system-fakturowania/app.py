@@ -1278,6 +1278,11 @@ if btn_sprzedaz:
                 st.warning("Nie znaleziono zadnych folderow z tagiem [FVS].")
             else:
                 tenants = [parse_fvs_folder(f["name"]) for f in fvs_folders]
+                # Najpierw najemcy z datą 1-go miesiąca, na końcu ci z datą śródroczną
+                tenants.sort(key=lambda t: (
+                    0 if (lambda d: d is None or d.day == 1)(_parse_contract_start(t["dates"]))
+                    else 1
+                ))
                 tenants_data = [
                     {"key": t["name"], "brutto": t["price"], "address": t["address"]}
                     for t in tenants
