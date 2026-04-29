@@ -1131,8 +1131,9 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-/* Czerwona ramka dla kolumny Parowanie (3. kolumna w glownym bloku) */
-div[data-testid="stHorizontalBlock"]
+/* Czerwona ramka dla wewnetrznego kontenera w 3. kolumnie segmentu miesiac */
+div[data-testid="stVerticalBlock"]
+  > div[data-testid="stHorizontalBlock"]
   > div[data-testid="stColumn"]:nth-child(3)
   > div
   > div[data-testid="stVerticalBlockBorderWrapper"] {
@@ -1144,23 +1145,12 @@ div[data-testid="stHorizontalBlock"]
 
 st.title("System Fakturowania")
 
-# ── Wiersz: pole miesiaca + Wyswietl ex ────────────────────────────
-_, input_col, btn_ex_col, _ = st.columns([1, 1.6, 0.4, 1])
-with input_col:
-    subfolder_name = st.text_input(
-        "Miesiac (np. 032026)",
-        placeholder="wpisz nazwe podfolderu miesiacowego...",
-    )
-with btn_ex_col:
-    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-    btn_wyswietl = st.button("Wyświetl ex", use_container_width=True)
-
-# ── Wiersz: wyszukiwarka Drive ──────────────────────────────────────
-_, srch_input_col, srch_type_col, srch_btn_col, _ = st.columns([1, 1.6, 0.35, 0.25, 1])
+# ── Search — na samej gorze ─────────────────────────────────────────
+srch_input_col, srch_type_col, srch_btn_col = st.columns([5, 1.2, 0.5])
 with srch_input_col:
     search_query = st.text_input(
         "Szukaj na Drive",
-        placeholder="wpisz nazwę pliku lub folderu...",
+        placeholder="Szukaj na Google Drive (nazwa pliku lub folderu)...",
         label_visibility="collapsed",
     )
 with srch_type_col:
@@ -1172,51 +1162,65 @@ with srch_type_col:
     )
 with srch_btn_col:
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-    btn_search = st.button("🔍", use_container_width=True, help="Szukaj na Google Drive")
+    btn_search = st.button("🔍 Szukaj", use_container_width=True)
 
 st.markdown("")
 
-# ── Trzy kolumny z sekcjami ────────────────────────────────────────
-left_col, mid_col, right_col = st.columns(3)
+# ── Segment: miesiac + akcje ────────────────────────────────────────
+with st.container(border=True):
 
-with left_col:
-    with st.container(border=True):
-        st.markdown("#### Faktury kosztowe")
-        btn_czytaj = st.button(
-            "Zaczytaj faktury kosztowe",
-            use_container_width=True,
-            type="primary",
+    # Pole miesiaca + Wyswietl ex
+    _, input_col, btn_ex_col, _ = st.columns([1, 1.6, 0.4, 1])
+    with input_col:
+        subfolder_name = st.text_input(
+            "Miesiac (np. 032026)",
+            placeholder="wpisz nazwe podfolderu miesiacowego...",
         )
-        btn_sprawdz = st.button(
-            "Sprawdz stan faktur kosztowych",
-            use_container_width=True,
-        )
+    with btn_ex_col:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        btn_wyswietl = st.button("Wyswietl ex", use_container_width=True)
 
-with mid_col:
-    with st.container(border=True):
-        st.markdown("#### Faktury sprzedazy")
-        btn_sprzedaz = st.button(
-            "Tworz wstepne wiersze faktur sprzedazy",
-            use_container_width=True,
-            type="primary",
-        )
-        btn_generuj_pdf = st.button(
-            "Generuj faktury sprzedazy PDF",
-            use_container_width=True,
-        )
+    # Trzy kolumny akcji
+    left_col, mid_col, right_col = st.columns(3)
 
-with right_col:
-    with st.container(border=True):
-        st.markdown("#### Parowanie")
-        btn_paruj = st.button(
-            "Paruj wyciag bankowy z arkuszem",
-            use_container_width=True,
-            type="primary",
-        )
-        btn_status_parowania = st.button(
-            "Status parowania",
-            use_container_width=True,
-        )
+    with left_col:
+        with st.container(border=True):
+            st.markdown("#### Faktury kosztowe")
+            btn_czytaj = st.button(
+                "Zaczytaj faktury kosztowe",
+                use_container_width=True,
+                type="primary",
+            )
+            btn_sprawdz = st.button(
+                "Sprawdz stan faktur kosztowych",
+                use_container_width=True,
+            )
+
+    with mid_col:
+        with st.container(border=True):
+            st.markdown("#### Faktury sprzedazy")
+            btn_sprzedaz = st.button(
+                "Tworz wstepne wiersze faktur sprzedazy",
+                use_container_width=True,
+                type="primary",
+            )
+            btn_generuj_pdf = st.button(
+                "Generuj faktury sprzedazy PDF",
+                use_container_width=True,
+            )
+
+    with right_col:
+        with st.container(border=True):
+            st.markdown("#### Parowanie")
+            btn_paruj = st.button(
+                "Paruj wyciag bankowy z arkuszem",
+                use_container_width=True,
+                type="primary",
+            )
+            btn_status_parowania = st.button(
+                "Status parowania",
+                use_container_width=True,
+            )
 
 # ----------------------------------------------------------------
 # AKCJA: Search Drive
