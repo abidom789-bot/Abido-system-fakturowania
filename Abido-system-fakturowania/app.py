@@ -135,7 +135,7 @@ SELLER_ADDR1   = "ul. Henryka Sienkiewicza 85/87"
 SELLER_ADDR2   = "90-057 Łódź"
 SELLER_NIP     = "NIP: 7252283544"
 SELLER_ACCOUNT = "Nr konta: 98 1870 1045 2078 1071 3878 0001"
-FAKTURY_SPRZEDAZY_FOLDER = "Faktury-sprzedazy"
+FAKTURY_SPRZEDAZY_PREFIX = "Faktury sprzedazy"
 
 _PDF_FONTS_CACHED: dict = {}
 _FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
@@ -440,6 +440,47 @@ def upload_file_to_drive(service, folder_id, filename, content_bytes,
         body={"name": filename, "parents": [folder_id]},
         media_body=media, fields="id"
     ).execute()
+
+
+def _get_user_drive_service():
+    """
+    Zwraca Drive service uzywajac user OAuth2 credentials ze secrets.
+    Wymaga sekcji [google_drive_oauth] z client_id, client_secret, refresh_token.
+    Zwraca None jesli credentials nie sa skonfigurowane.
+    """
+    oauth = dict(st.secrets.get("google_drive_oauth", {}))
+    if not oauth.get("refresh_token"):
+        return None
+    try:
+        from google.oauth2.credentials import Credentials
+        creds = Credentials(
+            token=None,
+            refresh_token=oauth["refresh_token"],
+            client_id=oauth["client_id"],
+            client_secret=oauth["client_secret"],
+            token_uri="https://oauth2.googleapis.com/token",
+        )
+        return build("drive", "v3", credentials=creds)
+    except Exception:
+        return None
+
+
+def upload_invoices_to_drive(user_drive_service, invoices, subfolder_name):
+    """
+    Wgrywa faktury PDF na Drive uzywajac user OAuth credentials.
+    Tworzy folder 'Faktury sprzedazy MMRRRR' wewnatrz FOLDER_ID.
+    """
+    folder_name = f"{FAKTURY_SPRZEDAZY_PREFIX} {subfolder_name}"
+    folder_id   = get_or_create_subfolder(user_drive_service, FOLDER_ID, folder_name)
+    for filename, pdf_b in invoices:
+        upload_file_to_drive(user_drive_service, folder_id, filename, pdf_b)
+    if invoices:
+        merged = merge_pdf_bytes([b for _, b in invoices])
+        upload_file_to_drive(
+            user_drive_service, folder_id,
+            f"Fs_najemcy_{subfolder_name}.pdf", merged
+        )
+    return folder_name
 
 
 def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
@@ -1281,29 +1322,40 @@ if btn_generuj_pdf:
             if not invoices:
                 st.warning("Brak wierszy w sekcji FAKTURY SPRZEDAZY NAJEMCOM.")
             else:
-                st.success(f"Wygenerowano {len(invoices)} faktur. Pobierz ponizej.")
-
-                # Scalony PDF — jeden przycisk na calosc
-                merged_bytes    = merge_pdf_bytes([b for _, b in invoices])
-                merged_filename = f"Fs_najemcy_{name}.pdf"
-                st.download_button(
-                    f"Pobierz scalony PDF ({len(invoices)} faktur)",
-                    data=merged_bytes,
-                    file_name=merged_filename,
-                    mime="application/pdf",
-                    use_container_width=True,
-                    type="primary",
-                )
-
-                # Poszczegolne faktury
-                with st.expander("Poszczegolne faktury PDF"):
-                    for filename, pdf_bytes in invoices:
-                        st.download_button(
-                            filename,
-                            data=pdf_bytes,
-                            file_name=filename,
-                            mime="application/pdf",
-                            key=f"dl_{filename}",
-                        )
+                # Próbuj wgrać na Drive przez user OAuth credentials
+                user_drive = _get_user_drive_service()
+                if user_drive:
+                    with st.spinner("Wgrywam na Google Drive..."):
+                        folder_name = upload_invoices_to_drive(user_drive, invoices, name)
+                    st.success(
+                        f"Gotowe! Wygenerowano {len(invoices)} faktur. "
+                        f"Folder na Drive: '{folder_name}'"
+                    )
+                else:
+                    # Fallback: przyciski download (brak google_drive_oauth w secrets)
+                    st.success(f"Wygenerowano {len(invoices)} faktur. Pobierz ponizej.")
+                    st.info(
+                        "Aby wgrywac automatycznie na Drive, dodaj sekcje "
+                        "[google_drive_oauth] do Streamlit secrets "
+                        "(uruchom get_refresh_token.py — instrukcja w pliku)."
+                    )
+                    merged_bytes = merge_pdf_bytes([b for _, b in invoices])
+                    st.download_button(
+                        f"Pobierz scalony PDF ({len(invoices)} faktur)",
+                        data=merged_bytes,
+                        file_name=f"Fs_najemcy_{name}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        type="primary",
+                    )
+                    with st.expander("Poszczegolne faktury PDF"):
+                        for filename, pdf_bytes in invoices:
+                            st.download_button(
+                                filename,
+                                data=pdf_bytes,
+                                file_name=filename,
+                                mime="application/pdf",
+                                key=f"dl_{filename}",
+                            )
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
