@@ -1050,12 +1050,15 @@ st.set_page_config(
 st.title("System Fakturowania")
 st.markdown("---")
 
-col1, col2, col3 = st.columns([1, 2, 1])
+col1, col2, col2b, col3 = st.columns([1, 1.6, 0.4, 1])
 with col2:
     subfolder_name = st.text_input(
         "Miesiac (np. 032026)",
         placeholder="wpisz nazwe podfolderu miesiacowego...",
     )
+with col2b:
+    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+    btn_wyswietl = st.button("Wyświetl ex", use_container_width=True)
 
 left_col, right_col = st.columns(2)
 with left_col:
@@ -1363,5 +1366,51 @@ if btn_generuj_pdf:
                                 mime="application/pdf",
                                 key=f"dl_{filename}",
                             )
+        except Exception as e:
+            st.error(f"Wystapil blad: {e}")
+
+# ----------------------------------------------------------------
+# AKCJA: Wyswietl ex
+# ----------------------------------------------------------------
+if btn_wyswietl:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds = get_credentials()
+            client = gspread.authorize(creds)
+            spreadsheet = client.open_by_key(SPREADSHEET_ID)
+            try:
+                worksheet = spreadsheet.worksheet(name)
+            except gspread.exceptions.WorksheetNotFound:
+                st.error(f"Arkusz '{name}' nie istnieje.")
+                worksheet = None
+            if worksheet:
+                COL_NAMES = [
+                    "Nazwa / Plik", "Kwota brutto", "Status", "Adres",
+                    "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
+                    "Kwota_raport_kasowy", "Data_ksiegowania", "wyciag_Tytul",
+                    "wyciag_Data_op", "wyciag_Rodzaj", "wyciag_Waluta",
+                    "wyciag_Nr_rachunku", "wyciag_Imie_Nazwisko", "Uwagi",
+                ]
+                sections = read_all_sections(worksheet)
+                LABELS = {
+                    SEP_KOSZTOWE: "Faktury kosztowe",
+                    SEP_SPRZEDAZ: "Faktury sprzedazy najemcom",
+                    SEP_WLASC:   "Wlasciciele i spoldzielnie",
+                    SEP_NIEZNANE: "Nieznane / niesparowane",
+                }
+                st.markdown(f"### Arkusz: {name}")
+                for sep in SECTION_ORDER:
+                    rows = sections.get(sep, [])
+                    label = LABELS.get(sep, sep)
+                    with st.expander(f"{label} ({len(rows)} wierszy)", expanded=True):
+                        if rows:
+                            padded = [r + [""] * (16 - len(r)) for r in rows]
+                            df_data = [dict(zip(COL_NAMES, r[:16])) for r in padded]
+                            st.dataframe(df_data, use_container_width=True)
+                        else:
+                            st.caption("(brak wierszy)")
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
