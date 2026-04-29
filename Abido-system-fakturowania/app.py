@@ -678,7 +678,7 @@ def rebuild_sheet(worksheet, sections):
         })
 
 
-def apply_sync_logic(existing_rows, new_data, has_address=False):
+def apply_sync_logic(existing_rows, new_data, has_address=False, default_status="0"):
     """
     Laczy istniejace zweryfikowane wiersze (C=1) z nowymi danymi.
     Wiersze z C=1 sa zachowane nawet jesli plik zostal usuniety z Drive.
@@ -698,7 +698,7 @@ def apply_sync_logic(existing_rows, new_data, has_address=False):
         else:
             addr  = item.get("address", "") if has_address else ""
             dates = item.get("dates",   "") if has_address else ""
-            result.append([key, item.get("brutto", ""), "0", "", addr, dates])
+            result.append([key, item.get("brutto", ""), default_status, "", addr, dates])
     # Zachowaj zweryfikowane wiersze ktorych plik zostal usuniety z Drive
     for key, row in verified.items():
         if key not in new_keys:
@@ -719,7 +719,7 @@ def sync_kosztowe(worksheet, files_data):
 def sync_sprzedaz(worksheet, tenants_data):
     sections                  = read_all_sections(worksheet)
     new_rows, skipped, added  = apply_sync_logic(
-        sections[SEP_SPRZEDAZ], tenants_data, has_address=True
+        sections[SEP_SPRZEDAZ], tenants_data, has_address=True, default_status="1"
     )
     sections[SEP_SPRZEDAZ]    = new_rows
     rebuild_sheet(worksheet, sections)
@@ -1653,47 +1653,48 @@ if "ex_sections" in st.session_state:
     ex_name     = st.session_state["ex_name"]
     ex_sections = st.session_state["ex_sections"]
 
-    st.markdown(f"### Arkusz: {ex_name}")
+    with st.container(border=True):
+        st.markdown(f"### Arkusz: {ex_name}")
 
-    edited = {}
-    for sep in SECTION_ORDER:
-        rows  = ex_sections.get(sep, [])
-        label = EX_LABELS.get(sep, sep)
-        with st.expander(f"{label} ({len(rows)} wierszy)", expanded=True):
-            if rows:
-                import pandas as pd
-                padded = [r + [""] * (17 - len(r)) for r in rows]
-                df = pd.DataFrame([dict(zip(EX_COL_NAMES, r[:17])) for r in padded])
-                df["Status"] = pd.to_numeric(df["Status"], errors="coerce").fillna(0).astype(int)
-                result_df = st.data_editor(
-                    df,
-                    key=f"editor_{sep}",
-                    use_container_width=True,
-                    disabled=EX_READONLY,
-                    hide_index=True,
-                    column_config={
-                        "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
-                    },
-                )
-                edited[sep] = result_df
-            else:
-                st.caption("(brak wierszy)")
-                edited[sep] = None
-
-    if st.button("Zapisz zmiany do Google Sheets", type="primary"):
-        try:
-            new_sections = {}
-            for sep in SECTION_ORDER:
-                df_ed = edited.get(sep)
-                if df_ed is not None:
-                    new_sections[sep] = df_ed.astype(str).replace("nan", "").values.tolist()
+        edited = {}
+        for sep in SECTION_ORDER:
+            rows  = ex_sections.get(sep, [])
+            label = EX_LABELS.get(sep, sep)
+            with st.expander(f"{label} ({len(rows)} wierszy)", expanded=True):
+                if rows:
+                    import pandas as pd
+                    padded = [r + [""] * (17 - len(r)) for r in rows]
+                    df = pd.DataFrame([dict(zip(EX_COL_NAMES, r[:17])) for r in padded])
+                    df["Status"] = pd.to_numeric(df["Status"], errors="coerce").fillna(0).astype(int)
+                    result_df = st.data_editor(
+                        df,
+                        key=f"editor_{sep}",
+                        use_container_width=True,
+                        disabled=EX_READONLY,
+                        hide_index=True,
+                        column_config={
+                            "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
+                        },
+                    )
+                    edited[sep] = result_df
                 else:
-                    new_sections[sep] = []
-            creds = get_credentials()
-            client = gspread.authorize(creds)
-            worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(ex_name)
-            rebuild_sheet(worksheet, new_sections)
-            st.success("Zapisano zmiany!")
-            del st.session_state["ex_sections"]
-        except Exception as e:
-            st.error(f"Blad zapisu: {e}")
+                    st.caption("(brak wierszy)")
+                    edited[sep] = None
+
+        if st.button("Zapisz zmiany do Google Sheets", type="primary"):
+            try:
+                new_sections = {}
+                for sep in SECTION_ORDER:
+                    df_ed = edited.get(sep)
+                    if df_ed is not None:
+                        new_sections[sep] = df_ed.astype(str).replace("nan", "").values.tolist()
+                    else:
+                        new_sections[sep] = []
+                creds = get_credentials()
+                client = gspread.authorize(creds)
+                worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(ex_name)
+                rebuild_sheet(worksheet, new_sections)
+                st.success("Zapisano zmiany!")
+                del st.session_state["ex_sections"]
+            except Exception as e:
+                st.error(f"Blad zapisu: {e}")
