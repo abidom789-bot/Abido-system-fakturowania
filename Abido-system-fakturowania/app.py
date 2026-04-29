@@ -468,10 +468,11 @@ def _get_user_drive_service():
 def upload_invoices_to_drive(user_drive_service, invoices, subfolder_name):
     """
     Wgrywa faktury PDF na Drive uzywajac user OAuth credentials.
-    Tworzy folder 'Faktury sprzedazy MMRRRR' wewnatrz FOLDER_ID.
+    Tworzy folder 'Faktury sprzedazy MMRRRR' wewnatrz 'Faktury-sprzedazy'.
     """
     folder_name = f"{FAKTURY_SPRZEDAZY_PREFIX} {subfolder_name}"
-    folder_id   = get_or_create_subfolder(user_drive_service, FOLDER_ID, folder_name)
+    parent_id   = get_or_create_subfolder(user_drive_service, FOLDER_ID, "Faktury-sprzedazy")
+    folder_id   = get_or_create_subfolder(user_drive_service, parent_id, folder_name)
     for filename, pdf_b in invoices:
         upload_file_to_drive(user_drive_service, folder_id, filename, pdf_b)
     if invoices:
