@@ -27,9 +27,9 @@ SCOPES = [
 ]
 
 HEADER_ROW = [
-    "Nazwa / Plik", "Kwota brutto", "Status", "Adres",
-    "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
-    "Kwota_raport_kasowy", "Data_ksiegowania", "wyciag_Tytul",
+    "Nazwa / Plik", "Kwota brutto", "Status", "Kwota_raport_kasowy",
+    "Adres", "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
+    "Data_ksiegowania", "wyciag_Tytul",
     "wyciag_Data_op", "wyciag_Rodzaj", "wyciag_Waluta",
     "wyciag_Nr_rachunku", "wyciag_Imie_Nazwisko", "Uwagi",
 ]
@@ -535,8 +535,8 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
     for num, row in enumerate(rows, 1):
         name       = row[0] if len(row) > 0 else ""
         amount_str = row[1] if len(row) > 1 else ""
-        address    = row[3] if len(row) > 3 else ""
-        klucz      = row[5] if len(row) > 5 else ""
+        address    = row[4] if len(row) > 4 else ""
+        klucz      = row[6] if len(row) > 6 else ""
 
         if not name:
             continue
@@ -698,7 +698,7 @@ def apply_sync_logic(existing_rows, new_data, has_address=False):
         else:
             addr  = item.get("address", "") if has_address else ""
             dates = item.get("dates",   "") if has_address else ""
-            result.append([key, item.get("brutto", ""), "0", addr, dates])
+            result.append([key, item.get("brutto", ""), "0", "", addr, dates])
     # Zachowaj zweryfikowane wiersze ktorych plik zostal usuniety z Drive
     for key, row in verified.items():
         if key not in new_keys:
@@ -763,7 +763,7 @@ def count_parowanie_statuses(credentials, spreadsheet_id, sheet_name):
         counts = {"s0": 0, "s1_bez": 0, "s1_para": 0, "s2": 0}
         for row in sections[sep]:
             status = str(row[2]).strip() if len(row) > 2 else ""
-            has_pair = len(row) > 6 and str(row[6]).strip() != ""
+            has_pair = len(row) > 7 and str(row[7]).strip() != ""
             if status == "0":
                 counts["s0"] += 1
             elif status == "1":
@@ -974,10 +974,10 @@ def pair_transactions(candidates, transactions):
 def _build_paired_row(existing_row, tx, klucz, uwagi=""):
     """Uzupelnia wiersz arkusza danymi z transakcji bankowej."""
     row = list(existing_row) + [""] * max(0, 17 - len(existing_row))
-    row[5]  = klucz
-    row[6]  = tx["kontrahent"].split("|")[0]
-    row[7]  = tx["kwota"]
-    row[8]  = ""   # raport kasowy — puste dla transakcji bankowych
+    row[3]  = ""   # raport kasowy — puste dla transakcji bankowych
+    row[6]  = klucz
+    row[7]  = tx["kontrahent"].split("|")[0]
+    row[8]  = tx["kwota"]
     row[9]  = tx["data_ks"]
     row[10] = tx["tytul"][:100]
     row[11] = tx["data_op"]
@@ -993,11 +993,10 @@ def _build_unmatched_row(tx):
     """Buduje wiersz dla niesparowanej transakcji z wyciagu (A i B puste)."""
     klucz = "nieznany_out" if tx["kwota"] < 0 else "nieznany_in"
     return [
-        "", "", "", "", "",       # A=nazwa, B=kwota, C=status, D=adres, E=data_umowy
+        "", "", "", "", "", "",   # A=nazwa, B=kwota, C=status, D=raport_kasowy, E=adres, F=data_umowy
         klucz,
         tx["kontrahent"].split("|")[0],
         tx["kwota"],
-        "",                      # raport kasowy
         tx["data_ks"],
         tx["tytul"][:100],
         tx["data_op"],
@@ -1041,8 +1040,8 @@ def sync_parowanie(worksheet, transactions):
             # Brak pary — klucz ksiegowy + wyczysc kolumny wyciagu
             klucz = assign_klucz_ksiegowy(sep, None, row[1] if len(row) > 1 else "", row[0] if row else "")
             r = list(row) + [""] * max(0, 17 - len(row))
-            r[5] = klucz
-            for col in range(6, 17):
+            r[6] = klucz
+            for col in range(7, 17):
                 r[col] = ""
             sections[sep][row_idx] = r
 
@@ -1635,9 +1634,10 @@ if btn_wyswietl:
             st.error(f"Wystapil blad: {e}")
 
 EX_COL_NAMES = [
-    "Nazwa / Plik", "Kwota brutto", "Status", "Adres", "Data_umowy",
+    "Nazwa / Plik", "Kwota brutto", "Status", "Kwota_raport_kasowy",
+    "Adres", "Data_umowy",
     "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
-    "Kwota_raport_kasowy", "Data_ksiegowania", "wyciag_Tytul",
+    "Data_ksiegowania", "wyciag_Tytul",
     "wyciag_Data_op", "wyciag_Rodzaj", "wyciag_Waluta",
     "wyciag_Nr_rachunku", "wyciag_Imie_Nazwisko", "Uwagi",
 ]
