@@ -1273,6 +1273,14 @@ div[data-testid="stVerticalBlock"]
     border-color: #cc2222 !important;
     border-width: 2px !important;
 }
+/* Tlo segmentu miesiac — lekko fioletowe */
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-month-bg) {
+    background-color: #f3eeff !important;
+}
+/* Tlo wyswietlonego arkusza (ex) — lekko zielone */
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-ex-bg) {
+    background-color: #edfaed !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1317,64 +1325,6 @@ with sh_tab_col:
 with sh_btn_col:
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
     btn_sh_search = st.button("🔍 Szukaj", use_container_width=True, key="btn_sh_search")
-
-st.markdown("")
-
-# ── Segment: miesiac + akcje ────────────────────────────────────────
-with st.container(border=True):
-
-    # Pole miesiaca + Wyswietl ex
-    _, input_col, btn_ex_col, _ = st.columns([1, 1.6, 0.4, 1])
-    with input_col:
-        subfolder_name = st.text_input(
-            "Miesiac (np. 032026)",
-            placeholder="wpisz nazwe podfolderu miesiacowego...",
-        )
-    with btn_ex_col:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        btn_wyswietl = st.button("Wyswietl ex", use_container_width=True)
-
-    # Trzy kolumny akcji
-    left_col, mid_col, right_col = st.columns(3)
-
-    with left_col:
-        with st.container(border=True):
-            st.markdown("#### Faktury kosztowe")
-            btn_czytaj = st.button(
-                "Zaczytaj faktury kosztowe",
-                use_container_width=True,
-                type="primary",
-            )
-            btn_sprawdz = st.button(
-                "Sprawdz stan faktur kosztowych",
-                use_container_width=True,
-            )
-
-    with mid_col:
-        with st.container(border=True):
-            st.markdown("#### Faktury sprzedazy")
-            btn_sprzedaz = st.button(
-                "Tworz wstepne wiersze faktur sprzedazy",
-                use_container_width=True,
-                type="primary",
-            )
-            btn_generuj_pdf = st.button(
-                "Generuj faktury sprzedazy PDF",
-                use_container_width=True,
-            )
-
-    with right_col:
-        with st.container(border=True):
-            st.markdown("#### Parowanie")
-            btn_paruj = st.button(
-                "Paruj wyciag bankowy z arkuszem",
-                use_container_width=True,
-                type="primary",
-            )
-            btn_status_parowania = st.button(
-                "Status parowania",
-                use_container_width=True,
-            )
 
 st.markdown("---")
 
@@ -1521,6 +1471,65 @@ with st.container(border=True):
                     "Saldo kaucji",
                     f"{depo_saldo:,.2f} zł".replace(",", " "),
                 )
+
+st.markdown("---")
+
+# ── Segment: miesiac + akcje ────────────────────────────────────────
+with st.container(border=True):
+    st.markdown('<span class="abido-month-bg"></span>', unsafe_allow_html=True)
+
+    # Pole miesiaca + Wyswietl ex
+    _, input_col, btn_ex_col, _ = st.columns([1, 1.6, 0.4, 1])
+    with input_col:
+        subfolder_name = st.text_input(
+            "Miesiac (np. 032026)",
+            placeholder="wpisz nazwe podfolderu miesiacowego...",
+        )
+    with btn_ex_col:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        btn_wyswietl = st.button("Wyswietl ex", use_container_width=True)
+
+    # Trzy kolumny akcji
+    left_col, mid_col, right_col = st.columns(3)
+
+    with left_col:
+        with st.container(border=True):
+            st.markdown("#### Faktury kosztowe")
+            btn_czytaj = st.button(
+                "Zaczytaj faktury kosztowe",
+                use_container_width=True,
+                type="primary",
+            )
+            btn_sprawdz = st.button(
+                "Sprawdz stan faktur kosztowych",
+                use_container_width=True,
+            )
+
+    with mid_col:
+        with st.container(border=True):
+            st.markdown("#### Faktury sprzedazy")
+            btn_sprzedaz = st.button(
+                "Tworz wstepne wiersze faktur sprzedazy",
+                use_container_width=True,
+                type="primary",
+            )
+            btn_generuj_pdf = st.button(
+                "Generuj faktury sprzedazy PDF",
+                use_container_width=True,
+            )
+
+    with right_col:
+        with st.container(border=True):
+            st.markdown("#### Parowanie")
+            btn_paruj = st.button(
+                "Paruj wyciag bankowy z arkuszem",
+                use_container_width=True,
+                type="primary",
+            )
+            btn_status_parowania = st.button(
+                "Status parowania",
+                use_container_width=True,
+            )
 
 # ----------------------------------------------------------------
 # AKCJA: Search Drive
@@ -1900,6 +1909,7 @@ if "ex_sections" in st.session_state:
     ex_sections = st.session_state["ex_sections"]
 
     with st.container(border=True):
+        st.markdown('<span class="abido-ex-bg"></span>', unsafe_allow_html=True)
         st.markdown(f"### Arkusz: {ex_name}")
 
         edited = {}
