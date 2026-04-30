@@ -1391,13 +1391,16 @@ with st.expander("Bilans najemcy", expanded=False):
         # Faktury PDF
         with st.expander(f"Faktury PDF ({len(_nj['pdfs'])})", expanded=True):
             if _nj["pdfs"]:
-                _pdf_df = pd.DataFrame(_nj["pdfs"])[["Zakladka", "Nazwa pliku", "Link"]]
-                st.dataframe(
-                    _pdf_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={"Link": st.column_config.LinkColumn("Link do Drive")},
-                )
+                for _p in _nj["pdfs"]:
+                    _link  = _p.get("Link", "")
+                    _fname = _p["Nazwa pliku"]
+                    _kwota = _p.get("Kwota")
+                    _kwota_str = f" — **{_kwota} zł**" if _kwota else ""
+                    _tab = f"`{_p['Zakladka']}`"
+                    if _link:
+                        st.markdown(f"{_tab} &nbsp; [📄 {_fname}]({_link}){_kwota_str}")
+                    else:
+                        st.markdown(f"{_tab} &nbsp; 📄 {_fname}{_kwota_str}")
             else:
                 st.caption("Brak faktur PDF dla tego najemcy w podanym zakresie.")
 
@@ -1878,9 +1881,10 @@ if btn_wyswietl:
     else:
         name = subfolder_name.strip()
         try:
-            creds = get_credentials()
-            client = gspread.authorize(creds)
-            spreadsheet = client.open_by_key(SPREADSHEET_ID)
+            creds         = get_credentials()
+            drive_service = build("drive", "v3", credentials=creds)
+            client        = gspread.authorize(creds)
+            spreadsheet   = client.open_by_key(SPREADSHEET_ID)
             try:
                 worksheet = spreadsheet.worksheet(name)
             except gspread.exceptions.WorksheetNotFound:
@@ -1890,6 +1894,31 @@ if btn_wyswietl:
                 sections = read_all_sections(worksheet)
                 st.session_state["ex_name"]     = name
                 st.session_state["ex_sections"] = sections
+                # Pobierz linki do plikow na Drive (kosztowe + sprzedazy)
+                file_links = {}
+                try:
+                    def _fetch_links(folder_id):
+                        resp = drive_service.files().list(
+                            q=(f"'{folder_id}' in parents and "
+                               "mimeType='application/pdf' and trashed=false"),
+                            fields="files(name, webViewLink)",
+                        ).execute()
+                        for f in resp.get("files", []):
+                            file_links[f["name"]] = f.get("webViewLink", "")
+                    kos_folder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, name)
+                    if kos_folder:
+                        _fetch_links(kos_folder["id"])
+                    sprzedaz_root = find_subfolder(drive_service, FOLDER_ID, "Faktury-sprzedazy")
+                    if sprzedaz_root:
+                        sprzedaz_sub = find_subfolder(
+                            drive_service, sprzedaz_root["id"],
+                            f"{FAKTURY_SPRZEDAZY_PREFIX} {name}"
+                        )
+                        if sprzedaz_sub:
+                            _fetch_links(sprzedaz_sub["id"])
+                except Exception:
+                    pass
+                st.session_state["ex_file_links"] = file_links
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
@@ -1924,20 +1953,27 @@ if "ex_sections" in st.session_state:
             with st.expander(f"{label} ({len(rows)} wierszy)", expanded=True):
                 if rows:
                     import pandas as pd
+                    _ex_links = st.session_state.get("ex_file_links", {})
                     padded = [r + [""] * (17 - len(r)) for r in rows]
                     df = pd.DataFrame([dict(zip(EX_COL_NAMES, r[:17])) for r in padded])
                     df["Status"] = pd.to_numeric(df["Status"], errors="coerce").fillna(0).astype(int)
+                    df.insert(1, "Link", df["Nazwa / Plik"].map(
+                        lambda n: _ex_links.get(str(n), "")
+                    ))
                     result_df = st.data_editor(
                         df,
                         key=f"editor_{sep}",
                         use_container_width=True,
-                        disabled=EX_READONLY,
+                        disabled=EX_READONLY + ["Link"],
                         hide_index=True,
                         column_config={
                             "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
+                            "Link": st.column_config.LinkColumn(
+                                "📎", display_text="📄", width="small"
+                            ),
                         },
                     )
-                    edited[sep] = result_df
+                    edited[sep] = result_df.drop(columns=["Link"])
                 else:
                     st.caption("(brak wierszy)")
                     edited[sep] = None
