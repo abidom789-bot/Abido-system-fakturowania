@@ -1296,52 +1296,49 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-ex-bg) > div {
 
 st.title("System Fakturowania")
 
-# ── Search — na samej gorze ─────────────────────────────────────────
-srch_input_col, srch_type_col, srch_btn_col = st.columns([5, 1.2, 0.5])
-with srch_input_col:
-    search_query = st.text_input(
-        "Szukaj na Drive",
-        placeholder="Szukaj na Google Drive (nazwa pliku lub folderu)...",
-        label_visibility="collapsed",
-    )
-with srch_type_col:
-    search_type = st.radio(
-        "Typ",
-        ["Pliki", "Foldery"],
-        horizontal=True,
-        label_visibility="collapsed",
-    )
-with srch_btn_col:
-    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-    btn_search = st.button("🔍 Szukaj", use_container_width=True)
+# ── Szukanie po slowach ─────────────────────────────────────────────
+with st.expander("Szukanie po słowach — Google Drive i Google Sheets", expanded=False):
 
-st.markdown("")
+    srch_input_col, srch_type_col, srch_btn_col = st.columns([5, 1.2, 0.5])
+    with srch_input_col:
+        search_query = st.text_input(
+            "Szukaj na Drive",
+            placeholder="Szukaj na Google Drive (nazwa pliku lub folderu)...",
+            label_visibility="collapsed",
+        )
+    with srch_type_col:
+        search_type = st.radio(
+            "Typ",
+            ["Pliki", "Foldery"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+    with srch_btn_col:
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+        btn_search = st.button("🔍 Szukaj", use_container_width=True)
 
-# ── Wyszukiwanie w Google Sheets ─────────────────────────────────────
-sh_q_col, sh_tab_col, sh_btn_col = st.columns([5, 1.2, 0.5])
-with sh_q_col:
-    sh_query = st.text_input(
-        "Szukaj w Sheets",
-        placeholder="Szukaj w Google Sheets (adres, nazwa, kwota...)...",
-        label_visibility="collapsed",
-    )
-with sh_tab_col:
-    sh_tab_options = ["Wszystkie"] + st.session_state.get("sheet_tab_names", [])
-    sh_tab_selected = st.selectbox(
-        "Zakladka",
-        sh_tab_options,
-        label_visibility="collapsed",
-    )
-with sh_btn_col:
-    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-    btn_sh_search = st.button("🔍 Szukaj", use_container_width=True, key="btn_sh_search")
-
-st.markdown("---")
+    sh_q_col, sh_tab_col, sh_btn_col = st.columns([5, 1.2, 0.5])
+    with sh_q_col:
+        sh_query = st.text_input(
+            "Szukaj w Sheets",
+            placeholder="Szukaj w Google Sheets (adres, nazwa, kwota...)...",
+            label_visibility="collapsed",
+        )
+    with sh_tab_col:
+        sh_tab_options = ["Wszystkie"] + st.session_state.get("sheet_tab_names", [])
+        sh_tab_selected = st.selectbox(
+            "Zakladka",
+            sh_tab_options,
+            label_visibility="collapsed",
+        )
+    with sh_btn_col:
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+        btn_sh_search = st.button("🔍 Szukaj", use_container_width=True, key="btn_sh_search")
 
 # ================================================================
 # BILANS NAJEMCY
 # ================================================================
-with st.expander("Bilans najemcy", expanded=True):
+with st.expander("Bilans najemcy", expanded=False):
     st.markdown('<span class="abido-bilans-bg"></span>', unsafe_allow_html=True)
 
     nj_r1c1, nj_r1c2 = st.columns(2)
@@ -1481,8 +1478,6 @@ with st.expander("Bilans najemcy", expanded=True):
                     "Saldo kaucji",
                     f"{depo_saldo:,.2f} zł".replace(",", " "),
                 )
-
-st.markdown("---")
 
 # ── Segment: miesiac + akcje ────────────────────────────────────────
 with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
