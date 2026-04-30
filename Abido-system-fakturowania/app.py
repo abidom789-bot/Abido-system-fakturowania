@@ -1153,6 +1153,101 @@ def search_sheet_rows(spreadsheet, query_text, sheet_filter=None):
 
 
 # ----------------------------------------------------------------
+# WIDOK NAJEMCY — wyszukiwanie transakcji i PDF po imieniu/nazwisku
+# ----------------------------------------------------------------
+
+def _month_tab_range(od_str, do_str):
+    """Zwraca listę nazw zakładek MMYYYY dla zakresu Od (MM/YYYY) Do (MM/YYYY)."""
+    m1, y1 = int(od_str[:2]), int(od_str[3:])
+    m2, y2 = int(do_str[:2]), int(do_str[3:])
+    tabs = []
+    y, m = y1, m1
+    while (y, m) <= (y2, m2):
+        tabs.append(f"{m:02d}{y}")
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+    return tabs
+
+
+def search_najemca_sheets(spreadsheet, imie, nazwisko, tabs):
+    """
+    Szuka wierszy pasujących do najemcy w zakładkach arkusza.
+    Sprawdza kolumnę A (Nazwa/Plik), G (Klucz_Ksiegowy) i P (wyciag_Imie_Nazwisko).
+    Zwraca listę słowników.
+    """
+    imie_n = _normalize_name_for_filename(imie)
+    nazw_n = _normalize_name_for_filename(nazwisko)
+    all_ws = {ws.title: ws for ws in spreadsheet.worksheets()}
+    results = []
+
+    for tab in tabs:
+        if tab not in all_ws:
+            continue
+        for row in all_ws[tab].get_all_values():
+            if not any(row):
+                continue
+            if row[0] == HEADER_ROW[0] or _match_separator(row[0]):
+                continue
+            padded = row + [""] * max(0, 17 - len(row))
+            col_a    = _normalize_name_for_filename(padded[0])
+            col_klucz = _normalize_name_for_filename(padded[6])
+            col_wyc  = _normalize_name_for_filename(padded[15])
+            hit = (
+                (imie_n in col_a     and nazw_n in col_a)     or
+                (imie_n in col_klucz and nazw_n in col_klucz) or
+                (imie_n in col_wyc   and nazw_n in col_wyc)
+            )
+            if hit:
+                results.append({
+                    "Zakladka":      tab,
+                    "Nazwa":         padded[0],
+                    "Kwota":         padded[1],
+                    "Status":        padded[2],
+                    "Raport_kasowy": padded[3],
+                    "Klucz":         padded[6],
+                    "wyciag_Kwota":  padded[8],
+                    "Data":          padded[9],
+                })
+    return results
+
+
+def search_najemca_pdfs(service, imie, nazwisko, tabs):
+    """
+    Szuka plików PDF pasujących do najemcy w podfolderach Drive (Faktury sprzedazy MMYYYY).
+    Zwraca listę słowników z nazwą pliku i linkiem do Drive.
+    """
+    imie_n = _normalize_name_for_filename(imie)
+    nazw_n = _normalize_name_for_filename(nazwisko)
+    sprzedaz_folder = find_subfolder(service, FOLDER_ID, "Faktury-sprzedazy")
+    if not sprzedaz_folder:
+        return []
+
+    results = []
+    for tab in tabs:
+        folder_name  = f"{FAKTURY_SPRZEDAZY_PREFIX} {tab}"
+        month_folder = find_subfolder(service, sprzedaz_folder["id"], folder_name)
+        if not month_folder:
+            continue
+        for pdf in list_pdfs_from_drive(service, month_folder["id"]):
+            fname = _normalize_name_for_filename(pdf["name"])
+            if imie_n in fname and nazw_n in fname:
+                try:
+                    meta = service.files().get(
+                        fileId=pdf["id"], fields="webViewLink"
+                    ).execute()
+                    link = meta.get("webViewLink", "")
+                except Exception:
+                    link = ""
+                results.append({
+                    "Zakladka":    tab,
+                    "Nazwa pliku": pdf["name"],
+                    "Link":        link,
+                })
+    return results
+
+
+# ----------------------------------------------------------------
 # INTERFEJS STREAMLIT
 # ----------------------------------------------------------------
 
@@ -1275,6 +1370,139 @@ with st.container(border=True):
                 "Status parowania",
                 use_container_width=True,
             )
+
+st.markdown("---")
+
+# ================================================================
+# WIDOK NAJEMCY
+# ================================================================
+with st.container(border=True):
+    st.markdown("### Widok najemcy")
+
+    nj_r1c1, nj_r1c2 = st.columns(2)
+    with nj_r1c1:
+        nj_imie = st.text_input(
+            "Imię najemcy", placeholder="np. Mehdi", key="nj_imie"
+        )
+    with nj_r1c2:
+        nj_nazwisko = st.text_input(
+            "Nazwisko najemcy", placeholder="np. Edbouche", key="nj_nazwisko"
+        )
+
+    _nj_month_opts = [f"{m:02d}/{y}" for y in range(2024, 2028) for m in range(1, 13)]
+    nj_dc1, nj_dc2, nj_bc = st.columns([2, 2, 1])
+    with nj_dc1:
+        nj_od = st.selectbox("Od", _nj_month_opts, index=15, key="nj_od")
+    with nj_dc2:
+        nj_do = st.selectbox("Do", _nj_month_opts, index=27, key="nj_do")
+    with nj_bc:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        btn_nj_search = st.button("Szukaj", use_container_width=True, key="btn_nj_search")
+
+    st.markdown("**Filtry transakcji:**")
+    nj_cc1, nj_cc2, nj_cc3, nj_cc4 = st.columns(4)
+    with nj_cc1:
+        st.markdown("**Gotówka (rk)**")
+        nj_kp  = st.checkbox("kp — wpływ",  value=True, key="nj_kp")
+        nj_kw  = st.checkbox("kw — wypływ", value=True, key="nj_kw")
+    with nj_cc2:
+        st.markdown("**Przelew**")
+        nj_pr_in  = st.checkbox("pr_in — wpływ",   value=True, key="nj_pr_in")
+        nj_pr_out = st.checkbox("pr_out — wypływ",  value=True, key="nj_pr_out")
+    with nj_cc3:
+        st.markdown("**Rozrachunkowe**")
+        nj_roz  = st.checkbox("roz",            value=True, key="nj_roz")
+        nj_depo = st.checkbox("depo — kaucja",  value=True, key="nj_depo")
+    with nj_cc4:
+        st.markdown("**Przychodowe**")
+        nj_prz = st.checkbox("prz — przychody", value=True, key="nj_prz")
+
+    # ── Wyniki ──────────────────────────────────────────────────
+    if "nj_results" in st.session_state:
+        import pandas as pd
+        _nj = st.session_state["nj_results"]
+        st.markdown(
+            f"#### Wyniki: {_nj['imie']} {_nj['nazwisko']}  "
+            f"({_nj['od']} – {_nj['do']})"
+        )
+
+        # Faktury PDF
+        with st.expander(f"Faktury PDF ({len(_nj['pdfs'])})", expanded=True):
+            if _nj["pdfs"]:
+                _pdf_df = pd.DataFrame(_nj["pdfs"])[["Zakladka", "Nazwa pliku", "Link"]]
+                st.dataframe(
+                    _pdf_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={"Link": st.column_config.LinkColumn("Link do Drive")},
+                )
+            else:
+                st.caption("Brak faktur PDF dla tego najemcy w podanym zakresie.")
+
+        # Filtr checkboxów
+        def _row_matches_filters(klucz):
+            k = klucz.lower()
+            if nj_prz    and k.startswith("prz_"):             return True
+            if nj_kp     and "rk_kp" in k:                    return True
+            if nj_kw     and "rk_kw" in k:                    return True
+            if nj_pr_in  and "pr_in" in k:                    return True
+            if nj_pr_out and "pr_out" in k:                   return True
+            if nj_depo   and "depo" in k:                     return True
+            if nj_roz    and "_roz_" in k and "depo" not in k: return True
+            return False
+
+        filtered_rows = [r for r in _nj["rows"] if _row_matches_filters(r["Klucz"])]
+
+        # Transakcje
+        with st.expander(
+            f"Transakcje w arkuszu ({len(filtered_rows)} z {len(_nj['rows'])})",
+            expanded=True,
+        ):
+            if filtered_rows:
+                st.dataframe(
+                    pd.DataFrame(filtered_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.caption("Brak transakcji dla wybranych filtrów.")
+
+        # Bilans
+        with st.expander("Bilans", expanded=True):
+            _prz_rows  = [r for r in _nj["rows"] if r["Klucz"].lower().startswith("prz_")]
+            _depo_in   = [r for r in _nj["rows"]
+                          if "depo" in r["Klucz"].lower()
+                          and ("_in" in r["Klucz"].lower() or "_kp" in r["Klucz"].lower())]
+            _depo_out  = [r for r in _nj["rows"]
+                          if "depo" in r["Klucz"].lower()
+                          and ("_out" in r["Klucz"].lower() or "_kw" in r["Klucz"].lower())]
+
+            def _sum_kwota_bil(rows):
+                return sum(abs(_parse_amount(r["Kwota"]) or 0.0) for r in rows)
+
+            prz_sum      = _sum_kwota_bil(_prz_rows)
+            depo_in_sum  = _sum_kwota_bil(_depo_in)
+            depo_out_sum = _sum_kwota_bil(_depo_out)
+            depo_saldo   = depo_in_sum - depo_out_sum
+
+            bil_c1, bil_c2 = st.columns(2)
+            with bil_c1:
+                st.markdown("**Przychody z wynajmu (prz)**")
+                st.metric("Faktury PDF", len(_nj["pdfs"]))
+                st.metric("Wierszy prz w arkuszu", len(_prz_rows))
+                st.metric(
+                    "Suma kwot prz",
+                    f"{prz_sum:,.2f} zł".replace(",", " "),
+                )
+            with bil_c2:
+                st.markdown("**Kaucja (depo)**")
+                st.metric("Wpłacona",  f"{depo_in_sum:,.2f} zł".replace(",", " "))
+                st.metric("Zwrócona",  f"{depo_out_sum:,.2f} zł".replace(",", " "))
+                _saldo_icon = "+" if depo_saldo >= 0 else "-"
+                st.metric(
+                    "Saldo kaucji",
+                    f"{depo_saldo:,.2f} zł".replace(",", " "),
+                )
 
 # ----------------------------------------------------------------
 # AKCJA: Search Drive
@@ -1698,3 +1926,37 @@ if "ex_sections" in st.session_state:
                 del st.session_state["ex_sections"]
             except Exception as e:
                 st.error(f"Blad zapisu: {e}")
+
+# ----------------------------------------------------------------
+# AKCJA: Widok najemcy
+# ----------------------------------------------------------------
+if btn_nj_search:
+    _nj_imie     = nj_imie.strip()
+    _nj_nazwisko = nj_nazwisko.strip()
+    if not _nj_imie or not _nj_nazwisko:
+        st.error("Wpisz imię i nazwisko najemcy.")
+    else:
+        try:
+            tabs          = _month_tab_range(nj_od, nj_do)
+            creds         = get_credentials()
+            drive_service = build("drive", "v3", credentials=creds)
+            client        = gspread.authorize(creds)
+            sp            = client.open_by_key(SPREADSHEET_ID)
+
+            with st.spinner(
+                f"Szukam '{_nj_imie} {_nj_nazwisko}' w {len(tabs)} miesiącach..."
+            ):
+                pdfs = search_najemca_pdfs(drive_service, _nj_imie, _nj_nazwisko, tabs)
+                rows = search_najemca_sheets(sp, _nj_imie, _nj_nazwisko, tabs)
+
+            st.session_state["nj_results"] = {
+                "imie":     _nj_imie,
+                "nazwisko": _nj_nazwisko,
+                "od":       nj_od,
+                "do":       nj_do,
+                "pdfs":     pdfs,
+                "rows":     rows,
+            }
+            st.rerun()
+        except Exception as e:
+            st.error(f"Błąd wyszukiwania najemcy: {e}")
