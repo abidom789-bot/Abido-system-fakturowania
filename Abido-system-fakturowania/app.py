@@ -565,7 +565,8 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
         payment_method = "Gotówka" if klucz == "prz_naj_rk_kp" else "Przelew"
         invoice_nr     = f"FVS {year} {month:02d} {num:02d} T"
         name_norm      = _normalize_name_for_filename(name)
-        filename       = f"fvs_{year}_{month:02d}_{num:02d}_t_{name_norm}.pdf"
+        amt_str_fn     = f"{int(round(amount))}"
+        filename       = f"fvs_{year}_{month:02d}_{num:02d}_t_{name_norm}_{amt_str_fn}.pdf"
 
         try:
             pdf_b = build_invoice_pdf_bytes({
@@ -1239,9 +1240,13 @@ def search_najemca_pdfs(service, imie, nazwisko, tabs):
                     link = meta.get("webViewLink", "")
                 except Exception:
                     link = ""
+                # kwota z nazwy pliku: ostatni segment numeryczny przed .pdf
+                amt_match = re.search(r"_(\d+)\.pdf$", pdf["name"])
+                kwota_pdf = int(amt_match.group(1)) if amt_match else None
                 results.append({
                     "Zakladka":    tab,
                     "Nazwa pliku": pdf["name"],
+                    "Kwota":       kwota_pdf,
                     "Link":        link,
                 })
     return results
@@ -1485,14 +1490,27 @@ with st.container(border=True):
             depo_out_sum = _sum_kwota_bil(_depo_out)
             depo_saldo   = depo_in_sum - depo_out_sum
 
+            pdf_kwoty    = [p["Kwota"] for p in _nj["pdfs"] if p.get("Kwota") is not None]
+            pdf_sum      = sum(pdf_kwoty)
+            roznica      = pdf_sum - prz_sum
+
             bil_c1, bil_c2 = st.columns(2)
             with bil_c1:
                 st.markdown("**Przychody z wynajmu (prz)**")
                 st.metric("Faktury PDF", len(_nj["pdfs"]))
+                st.metric(
+                    "Suma faktur PDF",
+                    f"{pdf_sum:,.2f} zł".replace(",", " "),
+                )
                 st.metric("Wierszy prz w arkuszu", len(_prz_rows))
                 st.metric(
-                    "Suma kwot prz",
+                    "Suma prz w arkuszu",
                     f"{prz_sum:,.2f} zł".replace(",", " "),
+                )
+                _diff_icon = "✅" if abs(roznica) < 0.01 else "⚠️"
+                st.metric(
+                    "Różnica (PDF – arkusz)",
+                    f"{_diff_icon} {roznica:,.2f} zł".replace(",", " "),
                 )
             with bil_c2:
                 st.markdown("**Kaucja (depo)**")
