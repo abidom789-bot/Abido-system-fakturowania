@@ -1273,13 +1273,17 @@ div[data-testid="stVerticalBlock"]
     border-color: #cc2222 !important;
     border-width: 2px !important;
 }
-/* Tlo segmentu miesiac — lekko fioletowe */
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-month-bg) {
-    background-color: #f3eeff !important;
+/* Tlo segmentu miesiac — fioletowe (dziala w dark i light mode) */
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-month-bg),
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-month-bg) > div {
+    background-color: rgba(130, 60, 220, 0.22) !important;
+    border-color: rgba(160, 90, 255, 0.6) !important;
 }
-/* Tlo wyswietlonego arkusza (ex) — lekko zielone */
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-ex-bg) {
-    background-color: #edfaed !important;
+/* Tlo wyswietlonego arkusza (ex) — zielone (dziala w dark i light mode) */
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-ex-bg),
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-ex-bg) > div {
+    background-color: rgba(40, 180, 90, 0.18) !important;
+    border-color: rgba(60, 200, 100, 0.6) !important;
 }
 </style>
 """, unsafe_allow_html=True)
