@@ -1966,6 +1966,7 @@ if "ex_sections" in st.session_state:
                         use_container_width=True,
                         disabled=EX_READONLY + ["Link"],
                         hide_index=True,
+                        height=min(600, max(120, len(rows) * 35 + 42)),
                         column_config={
                             "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
                             "Link": st.column_config.LinkColumn(
