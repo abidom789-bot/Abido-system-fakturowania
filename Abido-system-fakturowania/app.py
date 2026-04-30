@@ -1273,13 +1273,19 @@ div[data-testid="stVerticalBlock"]
     border-color: #cc2222 !important;
     border-width: 2px !important;
 }
-/* Tlo segmentu miesiac — fioletowe (dziala w dark i light mode) */
+/* Tlo segmentu miesiac — fioletowe */
+details[data-testid="stExpander"]:has(.abido-month-bg),
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-month-bg),
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-month-bg) > div {
     background-color: rgba(130, 60, 220, 0.22) !important;
     border-color: rgba(160, 90, 255, 0.6) !important;
 }
-/* Tlo wyswietlonego arkusza (ex) — zielone (dziala w dark i light mode) */
+/* Tlo bilansu najemcy — niebieskawa */
+details[data-testid="stExpander"]:has(.abido-bilans-bg) {
+    background-color: rgba(40, 130, 220, 0.18) !important;
+    border-color: rgba(60, 160, 255, 0.6) !important;
+}
+/* Tlo wyswietlonego arkusza (ex) — zielone */
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-ex-bg),
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-ex-bg) > div {
     background-color: rgba(40, 180, 90, 0.18) !important;
@@ -1333,10 +1339,10 @@ with sh_btn_col:
 st.markdown("---")
 
 # ================================================================
-# WIDOK NAJEMCY
+# BILANS NAJEMCY
 # ================================================================
-with st.container(border=True):
-    st.markdown("### Widok najemcy")
+with st.expander("Bilans najemcy", expanded=True):
+    st.markdown('<span class="abido-bilans-bg"></span>', unsafe_allow_html=True)
 
     nj_r1c1, nj_r1c2 = st.columns(2)
     with nj_r1c1:
@@ -1479,7 +1485,7 @@ with st.container(border=True):
 st.markdown("---")
 
 # ── Segment: miesiac + akcje ────────────────────────────────────────
-with st.container(border=True):
+with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
     st.markdown('<span class="abido-month-bg"></span>', unsafe_allow_html=True)
 
     # Pole miesiaca + Wyswietl ex
