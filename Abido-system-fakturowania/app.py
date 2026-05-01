@@ -1432,7 +1432,23 @@ with st.expander("Szukanie Google Sheets", expanded=False):
         btn_sh_search = st.button("🔍 Szukaj", use_container_width=True, key="btn_sh_search")
 
     # Checkboxy tagów
-    st.markdown("**Tagi (Klucz_Ksiegowy):**")
+    _SH_TAG_KEYS = [
+        "sh_tag_kos", "sh_tag_prz", "sh_tag_wla", "sh_tag_nieznany", "sh_tag_roz",
+        "sh_tag_rk_kp", "sh_tag_rk_kw", "sh_tag_pr_in", "sh_tag_pr_out", "sh_tag_depo",
+    ]
+    _sh_th1, _sh_th2, _sh_th3 = st.columns([4, 0.9, 0.9])
+    with _sh_th1:
+        st.markdown("**Tagi (Klucz_Ksiegowy):**")
+    with _sh_th2:
+        if st.button("✓ wszystkie", key="sh_tags_all", use_container_width=True):
+            for _k in _SH_TAG_KEYS:
+                st.session_state[_k] = True
+            st.rerun()
+    with _sh_th3:
+        if st.button("✗ odznacz", key="sh_tags_none", use_container_width=True):
+            for _k in _SH_TAG_KEYS:
+                st.session_state[_k] = False
+            st.rerun()
     _sh_tc = st.columns(5)
     with _sh_tc[0]:
         sh_tag_kos      = st.checkbox("kos — kosztowe",     key="sh_tag_kos")
@@ -1499,10 +1515,21 @@ with st.expander("Bilans najemcy", expanded=False):
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
         btn_nj_search = st.button("Szukaj", use_container_width=True, key="btn_nj_search")
 
-    _nj_fc1, _nj_fc2 = st.columns([3, 1])
+    _NJ_FILTER_KEYS = ["nj_kp", "nj_kw", "nj_pr_in", "nj_pr_out", "nj_roz", "nj_depo", "nj_prz"]
+    _nj_fc1, _nj_fc2, _nj_fc3, _nj_fc4 = st.columns([2.5, 0.9, 0.9, 1.2])
     with _nj_fc1:
         st.markdown("**Filtry transakcji:**")
     with _nj_fc2:
+        if st.button("✓ wszystkie", key="nj_filter_all", use_container_width=True):
+            for _k in _NJ_FILTER_KEYS:
+                st.session_state[_k] = True
+            st.rerun()
+    with _nj_fc3:
+        if st.button("✗ odznacz", key="nj_filter_none", use_container_width=True):
+            for _k in _NJ_FILTER_KEYS:
+                st.session_state[_k] = False
+            st.rerun()
+    with _nj_fc4:
         nj_filter_mode = st.radio(
             "Logika filtrów",
             ["OR", "AND"],
