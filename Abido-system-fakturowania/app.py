@@ -2079,7 +2079,14 @@ if "ex_sections" in st.session_state:
 
     with st.container(border=True):
         st.markdown('<span class="abido-ex-bg"></span>', unsafe_allow_html=True)
-        st.markdown(f"### Arkusz: {ex_name}")
+        _ex_title_col, _ex_close_col = st.columns([8, 1])
+        with _ex_title_col:
+            st.markdown(f"### Arkusz: {ex_name}")
+        with _ex_close_col:
+            if st.button("✕ Zamknij", key="btn_ex_close", use_container_width=True):
+                for _k in ("ex_name", "ex_sections", "ex_file_links"):
+                    st.session_state.pop(_k, None)
+                st.rerun()
 
         edited = {}
         for sep in SECTION_ORDER:
