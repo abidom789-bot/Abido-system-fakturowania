@@ -1481,6 +1481,49 @@ with st.expander("Szukanie Google Sheets", expanded=False):
         label_visibility="visible",
     )
 
+    # ── Wyniki dynamiczne (filtrowane przez tagi bez ponownego Szukaj) ──
+    if "sh_results" in st.session_state:
+        import pandas as pd
+        _sh_stored = st.session_state["sh_results"]
+        _sh_all_rows = _sh_stored["rows"]
+        _sh_qlabel   = _sh_stored["label"]
+
+        # Zbierz aktywne tagi
+        _sh_active = []
+        if sh_tag_kos:      _sh_active.append("kos")
+        if sh_tag_prz:      _sh_active.append("prz_naj")
+        if sh_tag_wla:      _sh_active.append("wla")
+        if sh_tag_nieznany: _sh_active.append("nieznany")
+        if sh_tag_roz:      _sh_active.append("roz")
+        if sh_tag_rk_kp:    _sh_active.append("rk_kp")
+        if sh_tag_rk_kw:    _sh_active.append("rk_kw")
+        if sh_tag_pr_in:    _sh_active.append("pr_in")
+        if sh_tag_pr_out:   _sh_active.append("pr_out")
+        if sh_tag_depo:     _sh_active.append("depo")
+
+        _sh_mode   = "AND" if sh_logic.startswith("AND") else "OR"
+        _sh_tag_fn = all if _sh_mode == "AND" else any
+
+        def _sh_row_matches(row):
+            if not _sh_active:
+                return True
+            klucz = row.get("Klucz_Ksiegowy", "").lower()
+            return _sh_tag_fn(
+                _SHEET_TAG_MATCHERS[t](klucz)
+                for t in _sh_active
+                if t in _SHEET_TAG_MATCHERS
+            )
+
+        _sh_filtered = [r for r in _sh_all_rows if _sh_row_matches(r)]
+        _tag_str = f" [{_sh_mode}: {', '.join(_sh_active)}]" if _sh_active else ""
+        st.markdown(
+            f"**Wyniki: {_sh_qlabel}{_tag_str} — {len(_sh_filtered)} z {len(_sh_all_rows)} wierszy**"
+        )
+        if _sh_filtered:
+            st.dataframe(pd.DataFrame(_sh_filtered), use_container_width=True, hide_index=True)
+        else:
+            st.info("Brak wyników dla wybranych tagów.")
+
 # ================================================================
 # BILANS NAJEMCY
 # ================================================================
@@ -1747,7 +1790,7 @@ if btn_search:
 # AKCJA: Search Sheets
 # ----------------------------------------------------------------
 if btn_sh_search:
-    # Zbierz tagi z checkboxów
+    # Zbierz tagi z checkboxów (używane gdy brak tekstu)
     _cb_tags = []
     if sh_tag_kos:      _cb_tags.append("kos")
     if sh_tag_prz:      _cb_tags.append("prz_naj")
@@ -1760,20 +1803,20 @@ if btn_sh_search:
     if sh_tag_pr_out:   _cb_tags.append("pr_out")
     if sh_tag_depo:     _cb_tags.append("depo")
 
-    # Parsuj pole tekstowe (obsługa aliasów i składni słowo*tag)
+    # Parsuj pole tekstowe
     raw_q = sh_query.strip()
-    text_q, query_tags, query_mode = _parse_sh_query(raw_q) if raw_q else ("", [], "OR")
+    text_q, query_tags, _ = _parse_sh_query(raw_q) if raw_q else ("", [], "OR")
 
-    # Połącz tagi z checkboxów i z zapytania
-    all_tags = list(dict.fromkeys(query_tags + _cb_tags))  # deduplikacja, zachowanie kolejności
-
-    # Tryb logiki: zapytanie *-składnia wymusza AND; radio przełącza tylko gdy brak *
-    if "*" in raw_q or (raw_q.lower() in _TAG_ALIASES):
-        final_mode = "AND"
+    # Gdy tekst: szukaj tylko po tekście (tagi będą UI-filtrem)
+    # Gdy brak tekstu: szukaj po tagach z checkboxów jako baza
+    if text_q:
+        search_tags, search_mode = None, "OR"
     else:
-        final_mode = "AND" if sh_logic.startswith("AND") else "OR"
+        search_tags = _cb_tags if _cb_tags else None
+        search_mode = "OR"  # dla bazy zawsze OR (AND to UI-filtr)
 
-    if not text_q and not all_tags:
+    _label = raw_q if raw_q else "/".join(_cb_tags)
+    if not text_q and not _cb_tags:
         st.warning("Wpisz frazę lub zaznacz przynajmniej jeden tag.")
     else:
         try:
@@ -1781,20 +1824,23 @@ if btn_sh_search:
             client = gspread.authorize(creds)
             sp     = client.open_by_key(SPREADSHEET_ID)
             sheet_filter = "" if sh_tab_selected == "Wszystkie" else sh_tab_selected
-            _desc = " ".join(filter(None, [text_q, ("+ " + "/".join(all_tags)) if all_tags else ""]))
-            with st.spinner(f"Szukam '{_desc}' w arkuszu..."):
+            with st.spinner(f"Szukam '{_label}' w arkuszu..."):
                 results, sheet_names = search_sheet_rows(
-                    sp, text_q, sheet_filter, tags=all_tags, mode=final_mode
+                    sp, text_q, sheet_filter, tags=search_tags, mode=search_mode
                 )
             st.session_state["sheet_tab_names"] = sorted(sheet_names)
-            if results:
-                import pandas as pd
-                label = sh_tab_selected if sh_tab_selected != "Wszystkie" else "wszystkich zakładkach"
-                st.markdown(f"**Wyniki dla '{_desc}' [{final_mode}] w {label} ({len(results)} wierszy):**")
-                df = pd.DataFrame(results)
-                st.dataframe(df, use_container_width=True, hide_index=True)
-            else:
-                st.info(f"Brak wyników dla '{_desc}'.")
+            st.session_state["sh_results"] = {"rows": results, "label": _label}
+            # Pre-select checkboxów z *-składni
+            _tag_to_key = {
+                "kos": "sh_tag_kos", "prz_naj": "sh_tag_prz", "wla": "sh_tag_wla",
+                "nieznany": "sh_tag_nieznany", "roz": "sh_tag_roz",
+                "rk_kp": "sh_tag_rk_kp", "rk_kw": "sh_tag_rk_kw",
+                "pr_in": "sh_tag_pr_in", "pr_out": "sh_tag_pr_out", "depo": "sh_tag_depo",
+            }
+            for _qt in query_tags:
+                if _qt in _tag_to_key:
+                    st.session_state[_tag_to_key[_qt]] = True
+            st.rerun()
         except Exception as e:
             st.error(f"Błąd wyszukiwania w arkuszu: {e}")
 
