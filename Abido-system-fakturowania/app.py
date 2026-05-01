@@ -1243,14 +1243,29 @@ def _month_tab_range(od_str, do_str):
     return tabs
 
 
-def search_najemca_sheets(spreadsheet, imie, nazwisko, tabs):
+def search_najemca_sheets(spreadsheet, imie, nazwisko, tabs, mode="AND"):
     """
     Szuka wierszy pasujących do najemcy w zakładkach arkusza.
     Sprawdza kolumnę A (Nazwa/Plik), G (Klucz_Ksiegowy) i P (wyciag_Imie_Nazwisko).
+    mode='AND': oba człony muszą pasować (gdy podano oba).
+    mode='OR':  wystarczy jeden człon.
+    Jedno puste pole → szuka tylko po podanym.
     Zwraca listę słowników.
     """
-    imie_n = _normalize_name_for_filename(imie)
-    nazw_n = _normalize_name_for_filename(nazwisko)
+    imie_n = _normalize_name_for_filename(imie) if imie.strip() else ""
+    nazw_n = _normalize_name_for_filename(nazwisko) if nazwisko.strip() else ""
+
+    def _col_hit(col_val):
+        if imie_n and nazw_n:
+            if mode == "OR":
+                return imie_n in col_val or nazw_n in col_val
+            return imie_n in col_val and nazw_n in col_val
+        if imie_n:
+            return imie_n in col_val
+        if nazw_n:
+            return nazw_n in col_val
+        return False
+
     all_ws = {ws.title: ws for ws in spreadsheet.worksheets()}
     results = []
 
@@ -1263,15 +1278,10 @@ def search_najemca_sheets(spreadsheet, imie, nazwisko, tabs):
             if row[0] == HEADER_ROW[0] or _match_separator(row[0]):
                 continue
             padded = row + [""] * max(0, 17 - len(row))
-            col_a    = _normalize_name_for_filename(padded[0])
+            col_a     = _normalize_name_for_filename(padded[0])
             col_klucz = _normalize_name_for_filename(padded[6])
-            col_wyc  = _normalize_name_for_filename(padded[15])
-            hit = (
-                (imie_n in col_a     and nazw_n in col_a)     or
-                (imie_n in col_klucz and nazw_n in col_klucz) or
-                (imie_n in col_wyc   and nazw_n in col_wyc)
-            )
-            if hit:
+            col_wyc   = _normalize_name_for_filename(padded[15])
+            if _col_hit(col_a) or _col_hit(col_klucz) or _col_hit(col_wyc):
                 results.append({
                     "Zakladka":      tab,
                     "Nazwa":         padded[0],
@@ -1285,13 +1295,25 @@ def search_najemca_sheets(spreadsheet, imie, nazwisko, tabs):
     return results
 
 
-def search_najemca_pdfs(service, imie, nazwisko, tabs):
+def search_najemca_pdfs(service, imie, nazwisko, tabs, mode="AND"):
     """
     Szuka plików PDF pasujących do najemcy w podfolderach Drive (Faktury sprzedazy MMYYYY).
     Zwraca listę słowników z nazwą pliku i linkiem do Drive.
     """
-    imie_n = _normalize_name_for_filename(imie)
-    nazw_n = _normalize_name_for_filename(nazwisko)
+    imie_n = _normalize_name_for_filename(imie) if imie.strip() else ""
+    nazw_n = _normalize_name_for_filename(nazwisko) if nazwisko.strip() else ""
+
+    def _fname_hit(fname):
+        if imie_n and nazw_n:
+            if mode == "OR":
+                return imie_n in fname or nazw_n in fname
+            return imie_n in fname and nazw_n in fname
+        if imie_n:
+            return imie_n in fname
+        if nazw_n:
+            return nazw_n in fname
+        return False
+
     sprzedaz_folder = find_subfolder(service, FOLDER_ID, "Faktury-sprzedazy")
     if not sprzedaz_folder:
         return []
@@ -1304,7 +1326,7 @@ def search_najemca_pdfs(service, imie, nazwisko, tabs):
             continue
         for pdf in list_pdfs_from_drive(service, month_folder["id"]):
             fname = _normalize_name_for_filename(pdf["name"])
-            if imie_n in fname and nazw_n in fname:
+            if _fname_hit(fname):
                 try:
                     meta = service.files().get(
                         fileId=pdf["id"], fields="webViewLink"
@@ -1448,14 +1470,22 @@ with st.expander("Szukanie Google Sheets", expanded=False):
 with st.expander("Bilans najemcy", expanded=False):
     st.markdown('<span class="abido-bilans-bg"></span>', unsafe_allow_html=True)
 
-    nj_r1c1, nj_r1c2 = st.columns(2)
+    nj_r1c1, nj_r1c2, nj_r1c3 = st.columns([2, 2, 1.5])
     with nj_r1c1:
         nj_imie = st.text_input(
-            "Imię najemcy", placeholder="np. Mehdi", key="nj_imie"
+            "Imię", placeholder="np. Fuzi (samo imię wystarczy)", key="nj_imie"
         )
     with nj_r1c2:
         nj_nazwisko = st.text_input(
-            "Nazwisko najemcy", placeholder="np. Edbouche", key="nj_nazwisko"
+            "Nazwisko", placeholder="np. Yang (samo nazwisko wystarczy)", key="nj_nazwisko"
+        )
+    with nj_r1c3:
+        nj_name_mode = st.radio(
+            "Logika imię+nazwisko",
+            ["AND", "OR"],
+            horizontal=True,
+            key="nj_name_mode",
+            help="AND: oba muszą pasować  |  OR: wystarczy jedno",
         )
 
     _nj_month_opts = [f"{m:02d}/{y}" for y in range(2024, 2028) for m in range(1, 13)]
@@ -2145,8 +2175,9 @@ if "ex_sections" in st.session_state:
 if btn_nj_search:
     _nj_imie     = nj_imie.strip()
     _nj_nazwisko = nj_nazwisko.strip()
-    if not _nj_imie or not _nj_nazwisko:
-        st.error("Wpisz imię i nazwisko najemcy.")
+    _nj_mode     = nj_name_mode  # "AND" lub "OR"
+    if not _nj_imie and not _nj_nazwisko:
+        st.error("Wpisz przynajmniej imię lub nazwisko najemcy.")
     else:
         try:
             tabs          = _month_tab_range(nj_od, nj_do)
@@ -2154,12 +2185,13 @@ if btn_nj_search:
             drive_service = build("drive", "v3", credentials=creds)
             client        = gspread.authorize(creds)
             sp            = client.open_by_key(SPREADSHEET_ID)
+            _nj_label     = " ".join(filter(None, [_nj_imie, _nj_nazwisko]))
 
             with st.spinner(
-                f"Szukam '{_nj_imie} {_nj_nazwisko}' w {len(tabs)} miesiącach..."
+                f"Szukam '{_nj_label}' [{_nj_mode}] w {len(tabs)} miesiącach..."
             ):
-                pdfs = search_najemca_pdfs(drive_service, _nj_imie, _nj_nazwisko, tabs)
-                rows = search_najemca_sheets(sp, _nj_imie, _nj_nazwisko, tabs)
+                pdfs = search_najemca_pdfs(drive_service, _nj_imie, _nj_nazwisko, tabs, mode=_nj_mode)
+                rows = search_najemca_sheets(sp, _nj_imie, _nj_nazwisko, tabs, mode=_nj_mode)
 
             st.session_state["nj_results"] = {
                 "imie":     _nj_imie,
