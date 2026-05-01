@@ -1200,7 +1200,8 @@ def search_sheet_rows(spreadsheet, query_text, sheet_filter=None, tags=None, mod
             klucz  = padded[_KLUCZ_IDX].lower()
 
             text_match = bool(q) and any(q in str(cell).lower() for cell in row)
-            tag_match  = bool(active_tags) and any(
+            _tag_fn    = all if mode == "AND" else any
+            tag_match  = bool(active_tags) and _tag_fn(
                 _SHEET_TAG_MATCHERS[t](klucz)
                 for t in active_tags
                 if t in _SHEET_TAG_MATCHERS
@@ -1498,7 +1499,17 @@ with st.expander("Bilans najemcy", expanded=False):
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
         btn_nj_search = st.button("Szukaj", use_container_width=True, key="btn_nj_search")
 
-    st.markdown("**Filtry transakcji:**")
+    _nj_fc1, _nj_fc2 = st.columns([3, 1])
+    with _nj_fc1:
+        st.markdown("**Filtry transakcji:**")
+    with _nj_fc2:
+        nj_filter_mode = st.radio(
+            "Logika filtrów",
+            ["OR", "AND"],
+            horizontal=True,
+            key="nj_filter_mode",
+            help="OR: pasuje dowolny zaznaczony typ  |  AND: klucz musi spełniać WSZYSTKIE zaznaczone",
+        )
     nj_cc1, nj_cc2, nj_cc3, nj_cc4 = st.columns(4)
     with nj_cc1:
         st.markdown("**Gotówka (rk)**")
@@ -1544,14 +1555,17 @@ with st.expander("Bilans najemcy", expanded=False):
         # Filtr checkboxów
         def _row_matches_filters(klucz):
             k = klucz.lower()
-            if nj_prz    and k.startswith("prz_"):             return True
-            if nj_kp     and "rk_kp" in k:                    return True
-            if nj_kw     and "rk_kw" in k:                    return True
-            if nj_pr_in  and "pr_in" in k:                    return True
-            if nj_pr_out and "pr_out" in k:                   return True
-            if nj_depo   and "depo" in k:                     return True
-            if nj_roz    and "_roz_" in k and "depo" not in k: return True
-            return False
+            checks = []
+            if nj_kp:     checks.append("rk_kp" in k)
+            if nj_kw:     checks.append("rk_kw" in k)
+            if nj_pr_in:  checks.append("pr_in" in k)
+            if nj_pr_out: checks.append("pr_out" in k)
+            if nj_depo:   checks.append("depo" in k)
+            if nj_roz:    checks.append("_roz_" in k and "depo" not in k)
+            if nj_prz:    checks.append(k.startswith("prz_"))
+            if not checks:
+                return True
+            return all(checks) if nj_filter_mode == "AND" else any(checks)
 
         filtered_rows = [r for r in _nj["rows"] if _row_matches_filters(r["Klucz"])]
 
