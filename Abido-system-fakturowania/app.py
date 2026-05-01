@@ -1119,15 +1119,68 @@ def search_drive_items(service, query_text, search_type):
     return results
 
 
-def search_sheet_rows(spreadsheet, query_text, sheet_filter=None):
+_KLUCZ_IDX = HEADER_ROW.index("Klucz_Ksiegowy")
+
+# Dopasowanie tagów do kolumny Klucz_Ksiegowy
+_SHEET_TAG_MATCHERS = {
+    "kos":      lambda k: k.startswith("kos_"),
+    "prz_naj":  lambda k: k.startswith("prz_"),
+    "wla":      lambda k: k.startswith("wla_"),
+    "nieznany": lambda k: k.startswith("nieznany_"),
+    "rk_kp":    lambda k: "rk_kp" in k,
+    "rk_kw":    lambda k: "rk_kw" in k,
+    "pr_in":    lambda k: "pr_in" in k and "pr_out" not in k,
+    "pr_out":   lambda k: "pr_out" in k,
+    "depo":     lambda k: "depo" in k,
+    "roz":      lambda k: "_roz_" in k and "depo" not in k,
+}
+
+# Aliasy wpisywane w polu tekstowym (np. "kos", "kosztowe", "netia*kos")
+_TAG_ALIASES = {
+    "kos": "kos", "kosztowe": "kos",
+    "prz": "prz_naj", "prz_naj": "prz_naj", "najemcy": "prz_naj",
+    "wla": "wla", "wlasciciel": "wla",
+    "nieznany": "nieznany",
+    "rk_kp": "rk_kp", "kp": "rk_kp",
+    "rk_kw": "rk_kw", "kw": "rk_kw",
+    "pr_in": "pr_in",
+    "pr_out": "pr_out",
+    "depo": "depo", "kaucja": "depo",
+    "roz": "roz",
+}
+
+
+def _parse_sh_query(raw):
+    """Parsuje zapytanie z pola tekstowego.
+    'netia*kos'  -> ('netia', ['kos'], 'AND')
+    'kos'        -> ('',      ['kos'], 'AND')
+    'netia'      -> ('netia', [],      'OR')
     """
-    Szuka query_text we wszystkich wierszach arkusza Google Sheets.
-    sheet_filter: None lub '' = wszystkie zakladki; inaczej = konkretna zakladka.
+    raw = raw.strip()
+    if "*" in raw:
+        parts = [p.strip() for p in raw.split("*")]
+        text_parts = [p for p in parts if p.lower() not in _TAG_ALIASES]
+        tag_parts  = [_TAG_ALIASES[p.lower()] for p in parts if p.lower() in _TAG_ALIASES]
+        return (" ".join(text_parts).strip(), tag_parts, "AND")
+    low = raw.lower()
+    if low in _TAG_ALIASES:
+        return ("", [_TAG_ALIASES[low]], "AND")
+    return (raw, [], "OR")
+
+
+def search_sheet_rows(spreadsheet, query_text, sheet_filter=None, tags=None, mode="OR"):
+    """
+    Szuka wierszy w Google Sheets.
+    query_text: tekst do szukania w dowolnej kolumnie (lub '').
+    tags:       lista tagów z _SHEET_TAG_MATCHERS (lub None/[]).
+    mode:       'OR' — tekst LUB tag; 'AND' — tekst I tag (oba muszą pasowac).
+    sheet_filter: None lub '' = wszystkie; inaczej = konkretna zakladka.
     Zwraca (wyniki: list[dict], nazwy_zakladek: list[str]).
     """
-    q = query_text.strip().lower()
+    q            = (query_text or "").strip().lower()
+    active_tags  = tags or []
     all_worksheets = spreadsheet.worksheets()
-    sheet_names = [ws.title for ws in all_worksheets]
+    sheet_names    = [ws.title for ws in all_worksheets]
 
     if sheet_filter:
         worksheets = [ws for ws in all_worksheets if ws.title == sheet_filter]
@@ -1141,10 +1194,29 @@ def search_sheet_rows(spreadsheet, query_text, sheet_filter=None):
                 continue
             if row and _match_separator(row[0]):
                 continue
-            if row and row[0] == HEADER_ROW[0]:   # naglowek
+            if row and row[0] == HEADER_ROW[0]:
                 continue
-            if any(q in str(cell).lower() for cell in row):
-                padded = row + [""] * max(0, 16 - len(row))
+            padded = row + [""] * max(0, 16 - len(row))
+            klucz  = padded[_KLUCZ_IDX].lower()
+
+            text_match = bool(q) and any(q in str(cell).lower() for cell in row)
+            tag_match  = bool(active_tags) and any(
+                _SHEET_TAG_MATCHERS[t](klucz)
+                for t in active_tags
+                if t in _SHEET_TAG_MATCHERS
+            )
+
+            if mode == "AND":
+                if q and active_tags:
+                    hit = text_match and tag_match
+                elif q:
+                    hit = text_match
+                else:
+                    hit = tag_match
+            else:  # OR
+                hit = text_match or tag_match
+
+            if hit:
                 entry = {"Zakladka": ws.title}
                 for j, col in enumerate(HEADER_ROW):
                     entry[col] = padded[j] if j < len(padded) else ""
@@ -1296,9 +1368,8 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-ex-bg) > div {
 
 st.title("System Fakturowania")
 
-# ── Szukanie po slowach ─────────────────────────────────────────────
-with st.expander("Szukanie po słowach — Google Drive i Google Sheets", expanded=False):
-
+# ── Szukanie Google Drive ────────────────────────────────────────────
+with st.expander("Szukanie Google Drive", expanded=False):
     srch_input_col, srch_type_col, srch_btn_col = st.columns([5, 1.2, 0.5])
     with srch_input_col:
         search_query = st.text_input(
@@ -1317,23 +1388,59 @@ with st.expander("Szukanie po słowach — Google Drive i Google Sheets", expand
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
         btn_search = st.button("🔍 Szukaj", use_container_width=True)
 
-    sh_q_col, sh_tab_col, sh_btn_col = st.columns([5, 1.2, 0.5])
-    with sh_q_col:
+# ── Szukanie Google Sheets ───────────────────────────────────────────
+with st.expander("Szukanie Google Sheets", expanded=False):
+    sh_r1c1, sh_r1c2, sh_r1c3 = st.columns([4.5, 1.5, 0.8])
+    with sh_r1c1:
         sh_query = st.text_input(
             "Szukaj w Sheets",
-            placeholder="Szukaj w Google Sheets (adres, nazwa, kwota...)...",
+            placeholder="słowo, tag (kos/prz/roz...) lub słowo*tag",
             label_visibility="collapsed",
         )
-    with sh_tab_col:
+    with sh_r1c2:
         sh_tab_options = ["Wszystkie"] + st.session_state.get("sheet_tab_names", [])
         sh_tab_selected = st.selectbox(
             "Zakladka",
             sh_tab_options,
             label_visibility="collapsed",
         )
-    with sh_btn_col:
+    with sh_r1c3:
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
         btn_sh_search = st.button("🔍 Szukaj", use_container_width=True, key="btn_sh_search")
+
+    # Checkboxy tagów
+    st.markdown("**Tagi (Klucz_Ksiegowy):**")
+    _sh_tc = st.columns(5)
+    with _sh_tc[0]:
+        sh_tag_kos      = st.checkbox("kos — kosztowe",     key="sh_tag_kos")
+    with _sh_tc[1]:
+        sh_tag_prz      = st.checkbox("prz — najemcy",      key="sh_tag_prz")
+    with _sh_tc[2]:
+        sh_tag_wla      = st.checkbox("wla — właściciele",  key="sh_tag_wla")
+    with _sh_tc[3]:
+        sh_tag_nieznany = st.checkbox("nieznany",            key="sh_tag_nieznany")
+    with _sh_tc[4]:
+        sh_tag_roz      = st.checkbox("roz",                 key="sh_tag_roz")
+
+    _sh_tc2 = st.columns(5)
+    with _sh_tc2[0]:
+        sh_tag_rk_kp  = st.checkbox("rk_kp — got. +",   key="sh_tag_rk_kp")
+    with _sh_tc2[1]:
+        sh_tag_rk_kw  = st.checkbox("rk_kw — got. -",   key="sh_tag_rk_kw")
+    with _sh_tc2[2]:
+        sh_tag_pr_in  = st.checkbox("pr_in — przelew +", key="sh_tag_pr_in")
+    with _sh_tc2[3]:
+        sh_tag_pr_out = st.checkbox("pr_out — przelew -",key="sh_tag_pr_out")
+    with _sh_tc2[4]:
+        sh_tag_depo   = st.checkbox("depo — kaucja",     key="sh_tag_depo")
+
+    sh_logic = st.radio(
+        "Logika wielu warunków",
+        ["OR — dowolny pasuje", "AND — wszystkie muszą pasować"],
+        horizontal=True,
+        key="sh_logic",
+        label_visibility="visible",
+    )
 
 # ================================================================
 # BILANS NAJEMCY
@@ -1569,26 +1676,54 @@ if btn_search:
 # AKCJA: Search Sheets
 # ----------------------------------------------------------------
 if btn_sh_search:
-    q = sh_query.strip()
-    if not q:
-        st.warning("Wpisz frazę do wyszukania w arkuszu.")
+    # Zbierz tagi z checkboxów
+    _cb_tags = []
+    if sh_tag_kos:      _cb_tags.append("kos")
+    if sh_tag_prz:      _cb_tags.append("prz_naj")
+    if sh_tag_wla:      _cb_tags.append("wla")
+    if sh_tag_nieznany: _cb_tags.append("nieznany")
+    if sh_tag_roz:      _cb_tags.append("roz")
+    if sh_tag_rk_kp:    _cb_tags.append("rk_kp")
+    if sh_tag_rk_kw:    _cb_tags.append("rk_kw")
+    if sh_tag_pr_in:    _cb_tags.append("pr_in")
+    if sh_tag_pr_out:   _cb_tags.append("pr_out")
+    if sh_tag_depo:     _cb_tags.append("depo")
+
+    # Parsuj pole tekstowe (obsługa aliasów i składni słowo*tag)
+    raw_q = sh_query.strip()
+    text_q, query_tags, query_mode = _parse_sh_query(raw_q) if raw_q else ("", [], "OR")
+
+    # Połącz tagi z checkboxów i z zapytania
+    all_tags = list(dict.fromkeys(query_tags + _cb_tags))  # deduplikacja, zachowanie kolejności
+
+    # Tryb logiki: zapytanie *-składnia wymusza AND; radio przełącza tylko gdy brak *
+    if "*" in raw_q or (raw_q.lower() in _TAG_ALIASES):
+        final_mode = "AND"
+    else:
+        final_mode = "AND" if sh_logic.startswith("AND") else "OR"
+
+    if not text_q and not all_tags:
+        st.warning("Wpisz frazę lub zaznacz przynajmniej jeden tag.")
     else:
         try:
             creds  = get_credentials()
             client = gspread.authorize(creds)
             sp     = client.open_by_key(SPREADSHEET_ID)
             sheet_filter = "" if sh_tab_selected == "Wszystkie" else sh_tab_selected
-            with st.spinner(f"Szukam '{q}' w arkuszu..."):
-                results, sheet_names = search_sheet_rows(sp, q, sheet_filter)
+            _desc = " ".join(filter(None, [text_q, ("+ " + "/".join(all_tags)) if all_tags else ""]))
+            with st.spinner(f"Szukam '{_desc}' w arkuszu..."):
+                results, sheet_names = search_sheet_rows(
+                    sp, text_q, sheet_filter, tags=all_tags, mode=final_mode
+                )
             st.session_state["sheet_tab_names"] = sorted(sheet_names)
             if results:
                 import pandas as pd
-                label = sh_tab_selected if sh_tab_selected != "Wszystkie" else "wszystkich zakladkach"
-                st.markdown(f"**Wyniki dla '{q}' w {label} ({len(results)} wierszy):**")
+                label = sh_tab_selected if sh_tab_selected != "Wszystkie" else "wszystkich zakładkach"
+                st.markdown(f"**Wyniki dla '{_desc}' [{final_mode}] w {label} ({len(results)} wierszy):**")
                 df = pd.DataFrame(results)
                 st.dataframe(df, use_container_width=True, hide_index=True)
             else:
-                st.info(f"Brak wynikow dla '{q}'.")
+                st.info(f"Brak wyników dla '{_desc}'.")
         except Exception as e:
             st.error(f"Błąd wyszukiwania w arkuszu: {e}")
 
