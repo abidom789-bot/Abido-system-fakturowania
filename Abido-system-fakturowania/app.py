@@ -2092,34 +2092,34 @@ if "ex_sections" in st.session_state:
         for sep in SECTION_ORDER:
             rows  = ex_sections.get(sep, [])
             label = EX_LABELS.get(sep, sep)
-            with st.expander(f"{label} ({len(rows)} wierszy)", expanded=True):
-                if rows:
-                    import pandas as pd
-                    _ex_links = st.session_state.get("ex_file_links", {})
-                    padded = [r + [""] * (17 - len(r)) for r in rows]
-                    df = pd.DataFrame([dict(zip(EX_COL_NAMES, r[:17])) for r in padded])
-                    df["Status"] = pd.to_numeric(df["Status"], errors="coerce").fillna(0).astype(int)
-                    df.insert(1, "Link", df["Nazwa / Plik"].map(
-                        lambda n: _ex_links.get(str(n), "")
-                    ))
-                    result_df = st.data_editor(
-                        df,
-                        key=f"editor_{sep}",
-                        use_container_width=True,
-                        disabled=EX_READONLY + ["Link"],
-                        hide_index=True,
-                        height="auto",
-                        column_config={
-                            "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
-                            "Link": st.column_config.LinkColumn(
-                                "Link", display_text="otwórz", width="small"
-                            ),
-                        },
-                    )
-                    edited[sep] = result_df.drop(columns=["Link"])
-                else:
-                    st.caption("(brak wierszy)")
-                    edited[sep] = None
+            st.markdown(f"**{label}** ({len(rows)} wierszy)")
+            if rows:
+                import pandas as pd
+                _ex_links = st.session_state.get("ex_file_links", {})
+                padded = [r + [""] * (17 - len(r)) for r in rows]
+                df = pd.DataFrame([dict(zip(EX_COL_NAMES, r[:17])) for r in padded])
+                df["Status"] = pd.to_numeric(df["Status"], errors="coerce").fillna(0).astype(int)
+                df.insert(1, "Link", df["Nazwa / Plik"].map(
+                    lambda n: _ex_links.get(str(n), "")
+                ))
+                result_df = st.data_editor(
+                    df,
+                    key=f"editor_{sep}",
+                    use_container_width=True,
+                    disabled=EX_READONLY + ["Link"],
+                    hide_index=True,
+                    height="auto",
+                    column_config={
+                        "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
+                        "Link": st.column_config.LinkColumn(
+                            "Link", display_text="otwórz", width="small"
+                        ),
+                    },
+                )
+                edited[sep] = result_df.drop(columns=["Link"])
+            else:
+                st.caption("(brak wierszy)")
+                edited[sep] = None
 
         if st.button("Zapisz zmiany do Google Sheets", type="primary"):
             try:
