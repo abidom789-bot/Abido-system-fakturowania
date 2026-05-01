@@ -1960,15 +1960,16 @@ if "ex_sections" in st.session_state:
                     df.insert(1, "Link", df["Nazwa / Plik"].map(
                         lambda n: _ex_links.get(str(n), "")
                     ))
-                    # height tylko dla duzych tabel (>30 wierszy) — zapobiega bialej pustce
-                    _h = min(600, len(rows) * 35 + 42) if len(rows) > 30 else None
+                    _editor_kwargs = {}
+                    if len(rows) > 30:
+                        _editor_kwargs["height"] = min(600, len(rows) * 35 + 42)
                     result_df = st.data_editor(
                         df,
                         key=f"editor_{sep}",
                         use_container_width=True,
                         disabled=EX_READONLY + ["Link"],
                         hide_index=True,
-                        height=_h,
+                        **_editor_kwargs,
                         column_config={
                             "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
                             "Link": st.column_config.LinkColumn(
