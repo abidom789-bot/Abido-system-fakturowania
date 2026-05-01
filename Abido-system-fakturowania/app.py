@@ -28,7 +28,7 @@ SCOPES = [
 
 HEADER_ROW = [
     "Nazwa / Plik", "Kwota brutto", "Status", "Kwota_raport_kasowy",
-    "Adres", "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
+    "Adres", "Data_umowy", "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
     "Data_ksiegowania", "wyciag_Tytul",
     "wyciag_Data_op", "wyciag_Rodzaj", "wyciag_Waluta",
     "wyciag_Nr_rachunku", "wyciag_Imie_Nazwisko", "Uwagi",
@@ -662,7 +662,7 @@ def rebuild_sheet(worksheet, sections):
             all_new.extend(sections[sep])
     worksheet.clear()
     # Reset formatowania calego arkusza (clear() nie czysci kolorow)
-    worksheet.format("A1:P500", {
+    worksheet.format("A1:Q500", {
         "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
         "textFormat": {"bold": False},
         "horizontalAlignment": "CENTER",
