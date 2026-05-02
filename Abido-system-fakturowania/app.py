@@ -2295,7 +2295,7 @@ if "ex_sections" in st.session_state:
                 use_container_width=True,
                 disabled=EX_READONLY + ["Link"],
                 hide_index=True,
-                height=len(_all_rows) * 35 + 42,
+                height=700,
                 column_config={
                     "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
                     "Link": st.column_config.LinkColumn(
