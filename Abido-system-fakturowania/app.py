@@ -2108,12 +2108,12 @@ if btn_sprzedaz:
                     )
                     skipped, added = sync_sprzedaz(worksheet, tenants_data)
 
-                st.success(f"Gotowe! Dodano: {added} najemcow | Zachowano (C=1): {skipped}")
-                st.dataframe(
-                    [{"Najemca": t["name"], "Kwota": t["price"], "Adres": t["address"]}
-                     for t in tenants],
-                    use_container_width=True,
-                )
+                st.session_state["msg_sprzedaz"] = {
+                    "text": f"Gotowe! Dodano: {added} najemcow | Zachowano (C=1): {skipped}",
+                    "tenants": [{"Najemca": t["name"], "Kwota": t["price"], "Adres": t["address"]}
+                                for t in tenants],
+                }
+                st.rerun()
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
@@ -2245,6 +2245,18 @@ EX_LABELS = {
     SEP_NIEZNANE: "Nieznane / niesparowane",
 }
 
+if "msg_sprzedaz" in st.session_state:
+    _msg = st.session_state["msg_sprzedaz"]
+    _mc, _xc = st.columns([11, 1])
+    with _mc:
+        st.success(_msg["text"])
+    with _xc:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        if st.button("✕", key="close_msg_sprzedaz", use_container_width=True):
+            del st.session_state["msg_sprzedaz"]
+            st.rerun()
+    st.dataframe(_msg["tenants"], use_container_width=True, hide_index=True)
+
 if "ex_sections" in st.session_state:
     ex_name     = st.session_state["ex_name"]
     ex_sections = st.session_state["ex_sections"]
@@ -2283,7 +2295,7 @@ if "ex_sections" in st.session_state:
                 use_container_width=True,
                 disabled=EX_READONLY + ["Link"],
                 hide_index=True,
-                height=min(len(_all_rows) * 35 + 42, 900),
+                height=len(_all_rows) * 35 + 42,
                 column_config={
                     "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
                     "Link": st.column_config.LinkColumn(
