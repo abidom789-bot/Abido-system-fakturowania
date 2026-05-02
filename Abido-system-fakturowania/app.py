@@ -2261,9 +2261,13 @@ if "msg_sprzedaz" in st.session_state:
             st.rerun()
     st.dataframe(_msg["tenants"], use_container_width=True, hide_index=True)
 
-if "ex_sections" in st.session_state:
+@st.fragment
+def _show_ex():
+    if "ex_sections" not in st.session_state:
+        return
     ex_name     = st.session_state["ex_name"]
     ex_sections = st.session_state["ex_sections"]
+    _ex_links   = st.session_state.get("ex_file_links", {})
 
     with st.container(border=True):
         st.markdown('<span class="abido-ex-bg"></span>', unsafe_allow_html=True)
@@ -2274,13 +2278,11 @@ if "ex_sections" in st.session_state:
             if st.button("✕ Zamknij", key="btn_ex_close", use_container_width=True):
                 for _k in ("ex_name", "ex_sections", "ex_file_links"):
                     st.session_state.pop(_k, None)
-                st.rerun()
+                st.rerun(scope="app")
 
         import pandas as pd
-        _ex_links = st.session_state.get("ex_file_links", {})
 
-        # Połącz wszystkie sekcje w jedną flat listę, zachowując info o sekcji
-        _all_rows = []  # lista (sep, row)
+        _all_rows = []
         for sep in SECTION_ORDER:
             for row in ex_sections.get(sep, []):
                 _all_rows.append((sep, row))
@@ -2324,12 +2326,15 @@ if "ex_sections" in st.session_state:
                     client = gspread.authorize(creds)
                     worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(ex_name)
                     rebuild_sheet(worksheet, new_sections)
-                    st.success("Zapisano zmiany!")
+                    st.toast("Zapisano zmiany!")
                     del st.session_state["ex_sections"]
+                    st.rerun(scope="app")
                 except Exception as e:
                     st.error(f"Blad zapisu: {e}")
         else:
             st.caption("Arkusz jest pusty.")
+
+_show_ex()
 
 # ----------------------------------------------------------------
 # AKCJA: Widok najemcy
