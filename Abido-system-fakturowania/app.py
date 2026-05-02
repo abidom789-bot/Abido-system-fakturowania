@@ -1099,7 +1099,7 @@ def search_drive_items(service, query_text, search_type):
 
     resp = service.files().list(
         q=q,
-        fields="files(id, name, parents)",
+        fields="files(id, name, parents, webViewLink)",
         pageSize=50,
         supportsAllDrives=True,
         includeItemsFromAllDrives=True,
@@ -1110,11 +1110,12 @@ def search_drive_items(service, query_text, search_type):
     for item in resp.get("files", []):
         name    = item["name"]
         parents = item.get("parents", [])
+        link    = item.get("webViewLink", "")
         if search_type == "Pliki":
             path = _get_item_path(service, parents[0], cache) if parents else "/"
         else:
             path = _get_item_path(service, item["id"], cache)
-        results.append({"Nazwa": name, "Ścieżka": path})
+        results.append({"Link": link, "Nazwa": name, "Ścieżka": path})
 
     return results
 
@@ -1835,6 +1836,9 @@ if btn_search:
                     pd.DataFrame(results),
                     use_container_width=True,
                     hide_index=True,
+                    column_config={
+                        "Link": st.column_config.LinkColumn("Link", display_text="otwórz", width="small"),
+                    },
                 )
             else:
                 st.info(f"Brak wynikow dla '{q}' ({search_type.lower()}).")
