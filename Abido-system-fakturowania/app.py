@@ -2260,56 +2260,60 @@ if "ex_sections" in st.session_state:
                     st.session_state.pop(_k, None)
                 st.rerun()
 
-        edited = {}
-        for sep in SECTION_ORDER:
-            rows  = ex_sections.get(sep, [])
-            label = EX_LABELS.get(sep, sep)
-            st.markdown(f"**{label}** ({len(rows)} wierszy)")
-            if rows:
-                import pandas as pd
-                _ex_links = st.session_state.get("ex_file_links", {})
-                padded = [r + [""] * (17 - len(r)) for r in rows]
-                df = pd.DataFrame([dict(zip(EX_COL_NAMES, r[:17])) for r in padded])
-                df["Status"] = pd.to_numeric(df["Status"], errors="coerce").fillna(0).astype(int)
-                df.insert(1, "Link", df["Nazwa / Plik"].map(
-                    lambda n: _ex_links.get(str(n), "")
-                ))
-                result_df = st.data_editor(
-                    df,
-                    key=f"editor_{sep}",
-                    use_container_width=True,
-                    disabled=EX_READONLY + ["Link"],
-                    hide_index=True,
-                    height=min(len(rows) * 35 + 42, 600),
-                    column_config={
-                        "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
-                        "Link": st.column_config.LinkColumn(
-                            "Link", display_text="otwórz", width="small"
-                        ),
-                    },
-                )
-                edited[sep] = result_df.drop(columns=["Link"])
-            else:
-                st.caption("(brak wierszy)")
-                edited[sep] = None
+        import pandas as pd
+        _ex_links = st.session_state.get("ex_file_links", {})
 
-        if st.button("Zapisz zmiany do Google Sheets", type="primary"):
-            try:
-                new_sections = {}
-                for sep in SECTION_ORDER:
-                    df_ed = edited.get(sep)
-                    if df_ed is not None:
-                        new_sections[sep] = df_ed.astype(str).replace("nan", "").values.tolist()
-                    else:
-                        new_sections[sep] = []
-                creds = get_credentials()
-                client = gspread.authorize(creds)
-                worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(ex_name)
-                rebuild_sheet(worksheet, new_sections)
-                st.success("Zapisano zmiany!")
-                del st.session_state["ex_sections"]
-            except Exception as e:
-                st.error(f"Blad zapisu: {e}")
+        # Połącz wszystkie sekcje w jedną flat listę, zachowując info o sekcji
+        _all_rows = []  # lista (sep, row)
+        for sep in SECTION_ORDER:
+            for row in ex_sections.get(sep, []):
+                _all_rows.append((sep, row))
+
+        if _all_rows:
+            padded = [r + [""] * (17 - len(r)) for _, r in _all_rows]
+            df_all = pd.DataFrame([dict(zip(EX_COL_NAMES, r[:17])) for r in padded])
+            df_all["Status"] = pd.to_numeric(df_all["Status"], errors="coerce").fillna(0).astype(int)
+            df_all.insert(1, "Link", df_all["Nazwa / Plik"].map(
+                lambda n: _ex_links.get(str(n), "")
+            ))
+            st.markdown(f"**Łącznie {len(_all_rows)} wierszy**")
+            result_df = st.data_editor(
+                df_all,
+                key="editor_all",
+                use_container_width=True,
+                disabled=EX_READONLY + ["Link"],
+                hide_index=True,
+                height=min(len(_all_rows) * 35 + 42, 900),
+                column_config={
+                    "Status": st.column_config.NumberColumn(min_value=0, max_value=2, step=1),
+                    "Link": st.column_config.LinkColumn(
+                        "Link", display_text="otwórz", width="small"
+                    ),
+                },
+            )
+
+            if st.button("Zapisz zmiany do Google Sheets", type="primary"):
+                try:
+                    new_sections = {sep: [] for sep in SECTION_ORDER}
+                    for i, (sep, _) in enumerate(_all_rows):
+                        row_vals = (
+                            result_df.iloc[i]
+                            .drop(labels=["Link"])
+                            .astype(str)
+                            .replace("nan", "")
+                            .tolist()
+                        )
+                        new_sections[sep].append(row_vals)
+                    creds = get_credentials()
+                    client = gspread.authorize(creds)
+                    worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(ex_name)
+                    rebuild_sheet(worksheet, new_sections)
+                    st.success("Zapisano zmiany!")
+                    del st.session_state["ex_sections"]
+                except Exception as e:
+                    st.error(f"Blad zapisu: {e}")
+        else:
+            st.caption("Arkusz jest pusty.")
 
 # ----------------------------------------------------------------
 # AKCJA: Widok najemcy
