@@ -1347,6 +1347,43 @@ def search_najemca_pdfs(service, imie, nazwisko, tabs, mode="AND"):
     return results
 
 
+def find_drive_folders_by_name(service, imie, nazwisko, mode="AND"):
+    """
+    Szuka folderów na Drive zawierających imię/nazwisko najemcy oraz słowo 'fvs'.
+    Zwraca listę słowników z nazwą folderu i linkiem.
+    """
+    imie_n = imie.strip().lower()
+    nazw_n = nazwisko.strip().lower()
+
+    name_parts = []
+    if imie_n:
+        name_parts.append(f"name contains '{imie_n}'")
+    if nazw_n:
+        name_parts.append(f"name contains '{nazw_n}'")
+    if not name_parts:
+        return []
+
+    join_op = " and " if mode == "AND" else " or "
+    name_query = join_op.join(name_parts)
+    full_query = (
+        f"mimeType = 'application/vnd.google-apps.folder' "
+        f"and name contains 'fvs' "
+        f"and ({name_query}) "
+        f"and trashed = false"
+    )
+    try:
+        res = service.files().list(
+            q=full_query,
+            fields="files(id, name, webViewLink)",
+            pageSize=20,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
+        return res.get("files", [])
+    except Exception:
+        return []
+
+
 # ----------------------------------------------------------------
 # INTERFEJS STREAMLIT
 # ----------------------------------------------------------------
@@ -1385,6 +1422,12 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-ex-bg),
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.abido-ex-bg) > div {
     background-color: rgba(40, 180, 90, 0.18) !important;
     border-color: rgba(60, 200, 100, 0.6) !important;
+}
+/* Przycisk Szukaj bilansu — zielony po zakonczeniu wyszukiwania */
+div[data-testid="stColumn"]:has(.abido-nj-search-done) button {
+    background-color: #1a7a38 !important;
+    border-color: #1a7a38 !important;
+    color: white !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1556,10 +1599,12 @@ with st.expander("Bilans najemcy", expanded=False):
         nj_do = st.selectbox("Do", _nj_month_opts, index=27, key="nj_do")
     with nj_bc:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        if "nj_results" in st.session_state:
+            st.markdown('<span class="abido-nj-search-done"></span>', unsafe_allow_html=True)
         btn_nj_search = st.button("Szukaj", use_container_width=True, key="btn_nj_search")
 
     _NJ_FILTER_KEYS = ["nj_kp", "nj_kw", "nj_pr_in", "nj_pr_out", "nj_roz", "nj_depo", "nj_prz"]
-    _nj_fc1, _nj_fc2, _nj_fc3, _nj_fc4 = st.columns([2.5, 0.9, 0.9, 1.2])
+    _nj_fc1, _nj_fc2, _nj_fc3, _nj_fc4, _nj_fc5 = st.columns([2.5, 0.9, 0.9, 1.2, 2.5])
     with _nj_fc1:
         st.markdown("**Filtry transakcji:**")
     with _nj_fc2:
@@ -1580,6 +1625,16 @@ with st.expander("Bilans najemcy", expanded=False):
             key="nj_filter_mode",
             help="OR: pasuje dowolny zaznaczony typ  |  AND: klucz musi spełniać WSZYSTKIE zaznaczone",
         )
+    with _nj_fc5:
+        if "nj_results" in st.session_state:
+            _nj_folders = st.session_state["nj_results"].get("drive_folders", [])
+            if _nj_folders:
+                _folder_links = " &nbsp;|&nbsp; ".join(
+                    f"[📁 {_f['name']}]({_f['webViewLink']})" for _f in _nj_folders
+                )
+                st.markdown(f"**Foldery fvs:** {_folder_links}")
+            else:
+                st.caption("Brak folderów 'fvs' dla tej nazwy")
     nj_cc1, nj_cc2, nj_cc3, nj_cc4 = st.columns(4)
     with nj_cc1:
         st.markdown("**Gotówka (rk)**")
@@ -2277,16 +2332,18 @@ if btn_nj_search:
             with st.spinner(
                 f"Szukam '{_nj_label}' [{_nj_mode}] w {len(tabs)} miesiącach..."
             ):
-                pdfs = search_najemca_pdfs(drive_service, _nj_imie, _nj_nazwisko, tabs, mode=_nj_mode)
-                rows = search_najemca_sheets(sp, _nj_imie, _nj_nazwisko, tabs, mode=_nj_mode)
+                pdfs          = search_najemca_pdfs(drive_service, _nj_imie, _nj_nazwisko, tabs, mode=_nj_mode)
+                rows          = search_najemca_sheets(sp, _nj_imie, _nj_nazwisko, tabs, mode=_nj_mode)
+                drive_folders = find_drive_folders_by_name(drive_service, _nj_imie, _nj_nazwisko, mode=_nj_mode)
 
             st.session_state["nj_results"] = {
-                "imie":     _nj_imie,
-                "nazwisko": _nj_nazwisko,
-                "od":       nj_od,
-                "do":       nj_do,
-                "pdfs":     pdfs,
-                "rows":     rows,
+                "imie":          _nj_imie,
+                "nazwisko":      _nj_nazwisko,
+                "od":            nj_od,
+                "do":            nj_do,
+                "pdfs":          pdfs,
+                "rows":          rows,
+                "drive_folders": drive_folders,
             }
             st.rerun()
         except Exception as e:
