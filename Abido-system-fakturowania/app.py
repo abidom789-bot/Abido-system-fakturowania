@@ -988,7 +988,7 @@ def _frozen_tx_pre_used(sections, transactions):
     frozen_sigs = set()
     for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
         for row in sections[sep]:
-            if str(row[2]).strip() != "2":
+            if str(row[2]).strip() not in ("2", "9"):
                 continue
             if len(row) <= 9 or not str(row[9]).strip():
                 continue  # brak daty_ks = nigdy nie bylo sparowania
@@ -1150,7 +1150,7 @@ def sync_parowanie(worksheet, transactions):
     candidates = []   # (flat_idx, section, row_idx_in_section, name, amount, direction)
     for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
         for i, row in enumerate(sections[sep]):
-            if str(row[2]).strip() == "1":
+            if str(row[2]).strip() in ("1", "9"):
                 amount = _parse_amount(row[1] if len(row) > 1 else "")
                 candidates.append((len(candidates), sep, i, row[0], amount, _DIRECTION[sep]))
 
@@ -1167,11 +1167,16 @@ def sync_parowanie(worksheet, transactions):
         if tx_idx is not None:
             tx = transactions[tx_idx]
             klucz = assign_klucz_ksiegowy(sep, tx, row[1] if len(row) > 1 else "", row[0] if row else "")
-            sections[sep][row_idx] = _build_paired_row(row, tx, klucz)
+            r = _build_paired_row(row, tx, klucz)
+            if str(r[2]).strip() == "9":
+                r[2] = "1"
+            sections[sep][row_idx] = r
         else:
             # Brak pary — klucz ksiegowy + wyczysc kolumny wyciagu
             klucz = assign_klucz_ksiegowy(sep, None, row[1] if len(row) > 1 else "", row[0] if row else "")
             r = list(row) + [""] * max(0, 17 - len(row))
+            if str(r[2]).strip() == "9":
+                r[2] = "1"
             r[6] = klucz
             for col in range(7, 17):
                 r[col] = ""
