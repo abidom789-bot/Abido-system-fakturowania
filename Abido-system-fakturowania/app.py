@@ -217,32 +217,68 @@ def _gsheets_date_to_str(s):
     return s
 
 
-def read_najemcy_for_invoices(credentials):
-    """
-    Czyta arkusz 'Abido najemcy' i zwraca liste najemcow ze Status=1.
-    Kolejnosc: taka jak w pliku (bez sortowania).
-    Kolumny: 0=Status, 4=Umowa od, 8=lokal mieszkalny, 9=najemca, 10=koszt najmu m-c
-    """
+def _read_najemcy_all(credentials):
+    """Czyta caly arkusz Abido najemcy. Zwraca (invoice_rows, lookup_dict)."""
     client = gspread.authorize(credentials)
     ws = client.open_by_key(ABIDO_NAJEMCY_ID).worksheet(ABIDO_NAJEMCY_SHEET)
     all_rows = ws.get_all_values()
-    result = []
-    for row in all_rows[1:]:   # pomijamy naglowek
-        if len(row) <= 9 or not row[9].strip():
+    if not all_rows:
+        return [], {}
+
+    header = [h.lower().strip() for h in all_rows[0]]
+
+    def _ci(keywords):
+        for kw in keywords:
+            for i, h in enumerate(header):
+                if kw in h:
+                    return i
+        return None
+
+    idx_status   = _ci(["status"])
+    idx_name     = _ci(["najemca"])
+    idx_lokal    = _ci(["lokal"])
+    idx_koszt    = _ci(["koszt najmu"])
+    idx_umowa_od = _ci(["umowa od"])
+
+    invoice_rows = []
+    lookup       = {}
+
+    for row in all_rows[1:]:
+        if idx_name is None or len(row) <= idx_name or not row[idx_name].strip():
+            continue
+        name    = row[idx_name].strip()
+        address = row[idx_lokal].strip() if idx_lokal is not None and len(row) > idx_lokal else ""
+        dates   = _gsheets_date_to_str(row[idx_umowa_od]) if idx_umowa_od is not None and len(row) > idx_umowa_od else ""
+        lookup[name] = {"address": address, "dates": dates}
+
+        if idx_status is None or idx_koszt is None:
             continue
         try:
-            status = float(row[0])
+            status = float(row[idx_status])
         except (ValueError, TypeError):
             continue
         if status != 1.0:
             continue
-        result.append({
-            "key":     row[9].strip(),
-            "brutto":  row[10].strip() if len(row) > 10 else "",
-            "address": row[8].strip()  if len(row) > 8  else "",
-            "dates":   _gsheets_date_to_str(row[4]) if len(row) > 4 else "",
+        invoice_rows.append({
+            "key":     name,
+            "brutto":  row[idx_koszt].strip() if len(row) > idx_koszt else "",
+            "address": "",
+            "dates":   "",
         })
-    return result
+
+    return invoice_rows, lookup
+
+
+def read_najemcy_for_invoices(credentials):
+    """Czyta Status=1 z Abido najemcy. Kolejnosc: taka jak w pliku."""
+    rows, _ = _read_najemcy_all(credentials)
+    return rows
+
+
+def read_najemcy_lookup(credentials):
+    """Zwraca slownik {najemca: {address, dates}} z Abido najemcy."""
+    _, lookup = _read_najemcy_all(credentials)
+    return lookup
 
 
 def _parse_contract_start(dates_str):
@@ -550,7 +586,7 @@ def upload_invoices_to_drive(user_drive_service, invoices, subfolder_name):
     return folder_name
 
 
-def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
+def generate_invoice_pdfs(drive_service, worksheet, subfolder_name, credentials=None):
     """
     Generuje PDF faktur sprzedazy dla wszystkich wierszy sekcji SPRZEDAZ.
     Zwraca liste (filename, pdf_bytes) — bez wgrywania na Drive.
@@ -561,6 +597,9 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
     sale_date        = date(year, month, last_day)
     default_issue    = date(year, month, 1)
     payment_deadline = sale_date
+
+    # Dane najemcow (adres, data umowy) z Abido najemcy
+    najemcy_lookup = read_najemcy_lookup(credentials) if credentials else {}
 
     # Wiersze sekcji SPRZEDAZ
     sections = read_all_sections(worksheet)
@@ -575,9 +614,10 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
     for num, row in enumerate(rows, 1):
         name       = row[0] if len(row) > 0 else ""
         amount_str = row[1] if len(row) > 1 else ""
-        address    = row[4] if len(row) > 4 else ""
-        dates_str  = row[5] if len(row) > 5 else ""
         klucz      = row[6] if len(row) > 6 else ""
+        nj         = najemcy_lookup.get(name, {})
+        address    = nj.get("address", "")
+        dates_str  = nj.get("dates",   "")
 
         if not name:
             continue
@@ -2155,7 +2195,7 @@ if btn_generuj_pdf:
                 )
 
             with st.spinner("Generuje faktury PDF..."):
-                invoices = generate_invoice_pdfs(drive_service, worksheet, name)
+                invoices = generate_invoice_pdfs(drive_service, worksheet, name, credentials=creds)
 
             if not invoices:
                 st.warning("Brak wierszy w sekcji FAKTURY SPRZEDAZY NAJEMCOM.")
