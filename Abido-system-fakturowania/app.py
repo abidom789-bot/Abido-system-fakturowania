@@ -980,16 +980,59 @@ def assign_klucz_ksiegowy(section, tx, amount_b_str, filename=""):
     return "nieznany_out" if kwota < 0 else "nieznany_in"
 
 
-def pair_transactions(candidates, transactions):
+def _frozen_tx_pre_used(sections, transactions):
+    """
+    Zwraca zbior indeksow transakcji z wyciagu juz uzytych przez wiersze ze statusem 2.
+    Sygnatura: (kwota, data_ks, nr_rachunku, tytul[:20]) — wystarczajaco unikalna.
+    """
+    frozen_sigs = set()
+    for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
+        for row in sections[sep]:
+            if str(row[2]).strip() != "2":
+                continue
+            if len(row) <= 9 or not str(row[9]).strip():
+                continue  # brak daty_ks = nigdy nie bylo sparowania
+            try:
+                kwota = round(float(
+                    re.sub(r"[^\d,.\-]", "", str(row[8])).replace(",", ".")
+                ), 2)
+            except (ValueError, TypeError):
+                continue
+            sig = (
+                kwota,
+                str(row[9]).strip(),
+                str(row[14]).strip() if len(row) > 14 else "",
+                str(row[10]).strip()[:20] if len(row) > 10 else "",
+            )
+            frozen_sigs.add(sig)
+
+    if not frozen_sigs:
+        return set()
+
+    pre_used = set()
+    for i, tx in enumerate(transactions):
+        sig = (
+            round(tx["kwota"], 2),
+            str(tx["data_ks"]).strip(),
+            str(tx["nr_rachunku"]).strip(),
+            str(tx["tytul"]).strip()[:20],
+        )
+        if sig in frozen_sigs:
+            pre_used.add(i)
+    return pre_used
+
+
+def pair_transactions(candidates, transactions, pre_used=None):
     """
     Paruje kandydatow (wiersze arkusza) z transakcjami bankowymi w 4 przebiegach.
     candidates: lista (idx, name, amount_float, direction)
                 direction: 1 = wpływ (sprzedaz), -1 = wydatek (kosztowe, wlasciciele)
     transactions: lista slownikow transakcji
+    pre_used: zbior indeksow transakcji juz uzytych (status=2)
     Zwraca: matched {cand_idx: tx_idx}, used_tx set(tx_idx)
     """
     matched = {}
-    used_tx = set()
+    used_tx = set(pre_used) if pre_used else set()
 
     def free_by_amount(amount, direction):
         return [i for i, tx in enumerate(transactions)
@@ -1111,8 +1154,11 @@ def sync_parowanie(worksheet, transactions):
                 amount = _parse_amount(row[1] if len(row) > 1 else "")
                 candidates.append((len(candidates), sep, i, row[0], amount, _DIRECTION[sep]))
 
+    # Transakcje juz uzyte przez zamrozone wiersze (status=2) — nie mozna ich ponownie parowac
+    pre_used = _frozen_tx_pre_used(sections, transactions)
+
     flat = [(c[0], c[3], c[4], c[5]) for c in candidates]
-    matched, used_tx = pair_transactions(flat, transactions)
+    matched, used_tx = pair_transactions(flat, transactions, pre_used=pre_used)
 
     # Zapisz wyniki parowania do wierszy
     for flat_idx, sep, row_idx, name, amount, direction in candidates:
