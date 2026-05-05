@@ -264,6 +264,7 @@ def _read_najemcy_all(credentials):
             "brutto":  row[idx_koszt].strip() if len(row) > idx_koszt else "",
             "address": "",
             "dates":   "",
+            "_dates":  dates,  # tylko do sortowania, nie trafia do arkusza
         })
 
     return invoice_rows, lookup
@@ -625,7 +626,7 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name, credentials=
         # Kwota (zawsze dodatnia na fakturze)
         try:
             amount = abs(float(
-                str(amount_str).replace(",", ".").replace(" ", "")
+                re.sub(r"[^\d,.]", "", str(amount_str)).replace(",", ".")
             ))
         except (ValueError, TypeError):
             amount = 0.0
@@ -2160,6 +2161,14 @@ if btn_sprzedaz:
             if not tenants_data:
                 st.warning("Brak najemcow ze Status=1 w arkuszu Abido najemcy.")
             else:
+                # Najemcy z umowa od polowy biezacego miesiaca → na koniec
+                cur_month, cur_year = int(name[:2]), int(name[2:])
+                def _sort_key(t):
+                    d = _parse_contract_start(t.get("_dates", ""))
+                    mid = d is not None and d.day > 1 and d.month == cur_month and d.year == cur_year
+                    return (1 if mid else 0, d.day if mid and d else 0)
+                tenants_data.sort(key=_sort_key)
+
                 with st.spinner("Zapisuje do Google Sheets..."):
                     client = gspread.authorize(creds)
                     worksheet = get_or_create_worksheet(
