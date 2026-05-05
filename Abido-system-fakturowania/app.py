@@ -234,10 +234,10 @@ def _read_najemcy_all(credentials):
                     return i
         return None
 
-    idx_status   = _ci(["status"])
-    idx_name     = _ci(["najemca"])
-    idx_lokal    = _ci(["lokal"])
-    idx_koszt    = _ci(["koszt najmu"])
+    idx_status   = _ci(["status do tworzenia", "status"])
+    idx_name     = _ci(["imię i nazwisko", "nazwisko najemcy", "najemca", "najemc"])
+    idx_lokal    = _ci(["adres mieszkania", "lokal mieszkalny", "adres", "lokal"])
+    idx_koszt    = _ci(["koszt wynajmu", "koszt najmu", "koszt"])
     idx_umowa_od = _ci(["umowa od"])
 
     invoice_rows = []
