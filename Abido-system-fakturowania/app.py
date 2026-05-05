@@ -1115,7 +1115,7 @@ def sync_parowanie(worksheet, transactions):
     matched, used_tx = pair_transactions(flat, transactions)
 
     # Zapisz wyniki parowania do wierszy
-    for flat_idx, sep, row_idx, name, amount in candidates:
+    for flat_idx, sep, row_idx, name, amount, direction in candidates:
         row = sections[sep][row_idx]
         tx_idx = matched.get(flat_idx)
         if tx_idx is not None:
