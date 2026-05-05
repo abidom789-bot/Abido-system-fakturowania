@@ -1082,7 +1082,9 @@ def pair_transactions(candidates, transactions, pre_used=None):
         if hits:
             assign(idx, hits[0])
 
-    # Przebieg 3: nazwisko (bez kwoty) — fioletowe
+    # Przebieg 3: nazwisko (bez kwoty)
+    #   — dokladnie 1 TX pasuje → normalne parowanie
+    #   — wiele TX pasuje     → fioletowe (niejednoznaczne)
     for idx, name, amount, direction in candidates:
         if idx in matched or idx in purple:
             continue
@@ -1091,10 +1093,14 @@ def pair_transactions(candidates, transactions, pre_used=None):
             continue
         last_name = tokens[-1]
         hits = [i for i in free_by_direction(direction) if _search_token(transactions[i], last_name)]
-        if hits:
+        if len(hits) == 1:
+            assign(idx, hits[0])
+        elif len(hits) > 1:
             purple[idx] = hits
 
-    # Przebieg 4: imie (pierwszy token, bez kwoty) — fioletowe
+    # Przebieg 4: imie (pierwszy token, bez kwoty)
+    #   — dokladnie 1 TX pasuje → normalne parowanie
+    #   — wiele TX pasuje     → fioletowe (niejednoznaczne)
     for idx, name, amount, direction in candidates:
         if idx in matched or idx in purple:
             continue
@@ -1103,7 +1109,9 @@ def pair_transactions(candidates, transactions, pre_used=None):
             continue
         first_name = tokens[0]
         hits = [i for i in free_by_direction(direction) if _search_token(transactions[i], first_name)]
-        if hits:
+        if len(hits) == 1:
+            assign(idx, hits[0])
+        elif len(hits) > 1:
             purple[idx] = hits
 
     # Przebieg 5: sama kwota (ostatnia szansa, dokladnie 1 tx)
