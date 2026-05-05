@@ -94,6 +94,8 @@ def extract_gross_amount(pdf_bytes):
         r"(?:razem|suma|og[oó][lł]em)\s+brutto[^\d]*?" + _NUM,
         # "Kwota brutto: X,XX"
         r"kwota\s+brutto\s*[:\-]\s*" + _NUM,
+        # "Kwota należności ogółem: X,XX PLN" — KSeF
+        r"kwota\s+nale[żz]no[śs]ci\s+og[oó][lł]em\s*[:\-]\s*" + _NUM,
         # "Łączna kwota" / "Total"
         r"(?:[lł][aą]czna\s+kwota|total)\s*[:\-]?\s*" + _NUM,
     ]
