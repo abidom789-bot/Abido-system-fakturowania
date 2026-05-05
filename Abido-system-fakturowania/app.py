@@ -983,53 +983,56 @@ def assign_klucz_ksiegowy(section, tx, amount_b_str, filename=""):
 def pair_transactions(candidates, transactions):
     """
     Paruje kandydatow (wiersze arkusza) z transakcjami bankowymi w 4 przebiegach.
-    candidates: lista (idx, name, amount_float)
+    candidates: lista (idx, name, amount_float, direction)
+                direction: 1 = wpływ (sprzedaz), -1 = wydatek (kosztowe, wlasciciele)
     transactions: lista slownikow transakcji
     Zwraca: matched {cand_idx: tx_idx}, used_tx set(tx_idx)
     """
     matched = {}
     used_tx = set()
 
-    def free_by_amount(amount):
+    def free_by_amount(amount, direction):
         return [i for i, tx in enumerate(transactions)
-                if i not in used_tx and _parse_amount(tx["kwota"]) == amount]
+                if i not in used_tx
+                and _parse_amount(tx["kwota"]) == amount
+                and tx["kwota"] * direction > 0]
 
     def assign(cand_idx, tx_idx):
         matched[cand_idx] = tx_idx
         used_tx.add(tx_idx)
 
     # Przebieg 1: nazwisko (ostatni token) + kwota
-    for idx, name, amount in candidates:
+    for idx, name, amount, direction in candidates:
         if idx in matched or amount is None:
             continue
         tokens = _extract_name_tokens(name)
         if not tokens:
             continue
         last_name = tokens[-1]
-        hits = [i for i in free_by_amount(amount) if _search_token(transactions[i], last_name)]
+        hits = [i for i in free_by_amount(amount, direction) if _search_token(transactions[i], last_name)]
         if hits:
             assign(idx, hits[0])
 
     # Przebieg 2: imie (pierwszy token) + kwota
-    for idx, name, amount in candidates:
+    for idx, name, amount, direction in candidates:
         if idx in matched or amount is None:
             continue
         tokens = _extract_name_tokens(name)
         if not tokens:
             continue
         first_name = tokens[0]
-        hits = [i for i in free_by_amount(amount) if _search_token(transactions[i], first_name)]
+        hits = [i for i in free_by_amount(amount, direction) if _search_token(transactions[i], first_name)]
         if hits:
             assign(idx, hits[0])
 
     # Przebieg 3: wszystkie tokeny (slowa kluczowe) + kwota, najlepszy score
-    for idx, name, amount in candidates:
+    for idx, name, amount, direction in candidates:
         if idx in matched or amount is None:
             continue
         tokens = _extract_name_tokens(name)
         if not tokens:
             continue
-        pool = free_by_amount(amount)
+        pool = free_by_amount(amount, direction)
         if not pool:
             continue
         scored = [(i, sum(1 for t in tokens if _search_token(transactions[i], t))) for i in pool]
@@ -1042,10 +1045,10 @@ def pair_transactions(candidates, transactions):
             assign(idx, best[0])
 
     # Przebieg 4: sama kwota (ostatnia szansa)
-    for idx, name, amount in candidates:
+    for idx, name, amount, direction in candidates:
         if idx in matched or amount is None:
             continue
-        pool = free_by_amount(amount)
+        pool = free_by_amount(amount, direction)
         if len(pool) == 1:
             assign(idx, pool[0])
 
@@ -1099,14 +1102,16 @@ def sync_parowanie(worksheet, transactions):
     sections = read_all_sections(worksheet)
 
     # Zbierz kandydatow ze statusem 1 ze wszystkich sekcji
-    candidates = []   # (flat_idx, section, row_idx_in_section, name, amount)
+    # direction: 1 = wpływ (sprzedaz), -1 = wydatek (kosztowe, wlasciciele)
+    _DIRECTION = {SEP_KOSZTOWE: -1, SEP_SPRZEDAZ: 1, SEP_WLASC: -1}
+    candidates = []   # (flat_idx, section, row_idx_in_section, name, amount, direction)
     for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
         for i, row in enumerate(sections[sep]):
             if str(row[2]).strip() == "1":
                 amount = _parse_amount(row[1] if len(row) > 1 else "")
-                candidates.append((len(candidates), sep, i, row[0], amount))
+                candidates.append((len(candidates), sep, i, row[0], amount, _DIRECTION[sep]))
 
-    flat = [(c[0], c[3], c[4]) for c in candidates]
+    flat = [(c[0], c[3], c[4], c[5]) for c in candidates]
     matched, used_tx = pair_transactions(flat, transactions)
 
     # Zapisz wyniki parowania do wierszy
