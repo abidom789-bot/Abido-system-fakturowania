@@ -902,9 +902,9 @@ def parse_bank_statement(xls_bytes):
 
 
 def _parse_amount(s):
-    """Parsuje kwote z komorki arkusza (obsluguje przecinek i minus)."""
+    """Parsuje kwote z komorki arkusza (obsluguje przecinek, minus, suffix zl)."""
     try:
-        return abs(float(str(s).replace(",", ".")))
+        return abs(float(re.sub(r"[^\d,.]", "", str(s)).replace(",", ".")))
     except (ValueError, TypeError):
         return None
 
