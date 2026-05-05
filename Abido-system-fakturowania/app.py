@@ -19,6 +19,8 @@ FOLDER_ID            = "1kwY6tOalKS2jnidABw6uUV23ykMj1iR2"
 FAKTURY_KOSZTOWE_ID  = "12RxQDakB6y9pxURM_Z73sS0fLNQyGtm1"
 MIESZKANIA_FOLDER_ID = "1mvVZN6y2vaKyWGV6SIWd7FuK38T2DHAI"
 SPREADSHEET_ID       = "1oFgjTnx6JwjD6j1pvRhcfSmd-1IwP2l3nLsw-8qv8a0"
+ABIDO_NAJEMCY_ID     = "1TuHpPvdZmGN_kXbAuhdA72hs8AKxaiOLQrOUpXh3uYA"
+ABIDO_NAJEMCY_SHEET  = "Aktualni najemcy"
 # ----------------------------------------------------------------
 
 SCOPES = [
@@ -196,6 +198,51 @@ def _get_pdf_fonts():
         _PDF_FONTS_CACHED = {"reg": "Helvetica", "bold": "Helvetica-Bold"}
 
     return _PDF_FONTS_CACHED["reg"], _PDF_FONTS_CACHED["bold"]
+
+
+def _gsheets_date_to_str(s):
+    """Konwertuje date z gspread (rozne formaty) do 'D.M.YYYY' dla _parse_contract_start."""
+    if not s:
+        return ""
+    s = str(s).strip()
+    if re.match(r"\d{1,2}\.\d{1,2}\.\d{4}", s):
+        return s
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
+    if m:
+        try:
+            d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            return f"{d.day}.{d.month}.{d.year}"
+        except ValueError:
+            pass
+    return s
+
+
+def read_najemcy_for_invoices(credentials):
+    """
+    Czyta arkusz 'Abido najemcy' i zwraca liste najemcow ze Status=1.
+    Kolejnosc: taka jak w pliku (bez sortowania).
+    Kolumny: 0=Status, 4=Umowa od, 8=lokal mieszkalny, 9=najemca, 10=koszt najmu m-c
+    """
+    client = gspread.authorize(credentials)
+    ws = client.open_by_key(ABIDO_NAJEMCY_ID).worksheet(ABIDO_NAJEMCY_SHEET)
+    all_rows = ws.get_all_values()
+    result = []
+    for row in all_rows[1:]:   # pomijamy naglowek
+        if len(row) <= 9 or not row[9].strip():
+            continue
+        try:
+            status = float(row[0])
+        except (ValueError, TypeError):
+            continue
+        if status != 1.0:
+            continue
+        result.append({
+            "key":     row[9].strip(),
+            "brutto":  row[10].strip() if len(row) > 10 else "",
+            "address": row[8].strip()  if len(row) > 8  else "",
+            "dates":   _gsheets_date_to_str(row[4]) if len(row) > 4 else "",
+        })
+    return result
 
 
 def _parse_contract_start(dates_str):
@@ -515,13 +562,6 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
     default_issue    = date(year, month, 1)
     payment_deadline = sale_date
 
-    # Dane folderow FVS — do odczytu daty poczatku umowy
-    fvs_folders = list_fvs_folders(drive_service)
-    fvs_by_name = {}
-    for f in fvs_folders:
-        d = parse_fvs_folder(f["name"])
-        fvs_by_name[d["name"]] = d
-
     # Wiersze sekcji SPRZEDAZ
     sections = read_all_sections(worksheet)
     rows = sections[SEP_SPRZEDAZ]
@@ -536,6 +576,7 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
         name       = row[0] if len(row) > 0 else ""
         amount_str = row[1] if len(row) > 1 else ""
         address    = row[4] if len(row) > 4 else ""
+        dates_str  = row[5] if len(row) > 5 else ""
         klucz      = row[6] if len(row) > 6 else ""
 
         if not name:
@@ -551,16 +592,14 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name):
 
         # Data wystawienia i ewentualna korekta proporcjonalna
         issue_date = default_issue
-        fvs = fvs_by_name.get(name)
-        if fvs and fvs.get("dates"):
-            contract_start = _parse_contract_start(fvs["dates"])
-            if (contract_start
-                    and contract_start.year == year
-                    and contract_start.month == month
-                    and contract_start.day > 1):
-                issue_date = contract_start
-                days_remaining = last_day - contract_start.day + 1
-                amount = round(amount * days_remaining / last_day, 2)
+        contract_start = _parse_contract_start(dates_str)
+        if (contract_start
+                and contract_start.year == year
+                and contract_start.month == month
+                and contract_start.day > 1):
+            issue_date = contract_start
+            days_remaining = last_day - contract_start.day + 1
+            amount = round(amount * days_remaining / last_day, 2)
 
         payment_method = "Gotówka" if klucz == "prz_naj_rk_kp" else "Przelew"
         invoice_nr     = f"FVS {year} {month:02d} {num:02d} T"
@@ -2074,37 +2113,13 @@ if btn_sprzedaz:
         name = subfolder_name.strip()
         try:
             creds = get_credentials()
-            drive_service = build("drive", "v3", credentials=creds)
 
-            with st.spinner("Szukam folderow najemcow [FVS]..."):
-                fvs_folders = list_fvs_folders(drive_service)
+            with st.spinner("Czytam najemcow z arkusza Abido najemcy..."):
+                tenants_data = read_najemcy_for_invoices(creds)
 
-            if not fvs_folders:
-                st.warning("Nie znaleziono zadnych folderow z tagiem [FVS].")
+            if not tenants_data:
+                st.warning("Brak najemcow ze Status=1 w arkuszu Abido najemcy.")
             else:
-                tenants = [parse_fvs_folder(f["name"]) for f in fvs_folders]
-                cur_month, cur_year = int(name[:2]), int(name[2:])
-
-                def _tenant_sort_key(t):
-                    d = _parse_contract_start(t["dates"])
-                    mid_this_month = (
-                        d is not None
-                        and d.day > 1
-                        and d.month == cur_month
-                        and d.year  == cur_year
-                    )
-                    return (
-                        1 if mid_this_month else 0,   # mid-month bieżącego mies. → koniec
-                        t.get("address", ""),          # alfabetycznie po adresie
-                        d.day if mid_this_month and d else 0,  # w grupie końcowej wg dnia
-                    )
-
-                tenants.sort(key=_tenant_sort_key)
-                tenants_data = [
-                    {"key": t["name"], "brutto": t["price"], "address": t["address"], "dates": t["dates"]}
-                    for t in tenants
-                ]
-
                 with st.spinner("Zapisuje do Google Sheets..."):
                     client = gspread.authorize(creds)
                     worksheet = get_or_create_worksheet(
@@ -2114,8 +2129,8 @@ if btn_sprzedaz:
 
                 st.session_state["msg_sprzedaz"] = {
                     "text": f"Gotowe! Dodano: {added} najemcow | Zachowano (C=1): {skipped}",
-                    "tenants": [{"Najemca": t["name"], "Kwota": t["price"], "Adres": t["address"]}
-                                for t in tenants],
+                    "tenants": [{"Najemca": t["key"], "Kwota": t["brutto"], "Adres": t["address"]}
+                                for t in tenants_data],
                 }
                 st.rerun()
         except Exception as e:
