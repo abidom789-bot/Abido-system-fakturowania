@@ -3076,14 +3076,14 @@ if btn_wyswietl:
             st.error(f"Wystapil blad: {e}")
 
 EX_COL_NAMES = [
-    "Nazwa / Plik", "Kwota brutto", "Status", "Kwota_raport_kasowy",
-    "Adres", "Data_umowy",
+    "Nazwa / Plik", "Kwota brutto", "Status",
+    "", "", "",
     "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
     "Data_ksiegowania", "wyciag_Tytul",
     "wyciag_Data_op", "wyciag_Rodzaj", "wyciag_Waluta",
     "wyciag_Nr_rachunku", "wyciag_Imie_Nazwisko", "Uwagi",
 ]
-EX_READONLY = [c for c in EX_COL_NAMES if c not in ("Status", "Kwota brutto", "Uwagi")]
+EX_READONLY = [c for c in EX_COL_NAMES if c not in ("Status", "Kwota brutto", "Uwagi", "")]
 EX_LABELS = {
     SEP_KOSZTOWE: "Faktury kosztowe",
     SEP_SPRZEDAZ: "Faktury sprzedazy najemcom",
@@ -3132,6 +3132,7 @@ def _show_ex():
         if _all_rows:
             padded = [r + [""] * (17 - len(r)) for _, r in _all_rows]
             df_all = pd.DataFrame([dict(zip(EX_COL_NAMES, r[:17])) for r in padded])
+            df_all = df_all[[c for c in df_all.columns if c != ""]]  # ukryte kolumny (D,E,F)
             df_all["Status"] = pd.to_numeric(df_all["Status"], errors="coerce").fillna(0).astype(int)
             df_all.insert(1, "Link", df_all["Nazwa / Plik"].map(
                 lambda n: _ex_links.get(str(n), "")
