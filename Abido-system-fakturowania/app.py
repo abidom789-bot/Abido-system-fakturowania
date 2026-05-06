@@ -1372,11 +1372,26 @@ def sync_parowanie(worksheet, transactions):
     ]
 
     # Niesparowane transakcje z wyciagu → SEP_NIEZNANE (zastepowane, ale zamrozone zostaja)
-    sections[SEP_NIEZNANE] = frozen_nieznane + [
+    unmatched_rows = [
         _build_unmatched_row(transactions[i])
         for i in range(len(transactions))
         if i not in used_tx
     ]
+
+    def _nieznane_sort_key(row):
+        k = str(row[6]).strip().lower() if len(row) > 6 else ""
+        if "depo" in k and "pr_in"  in k: return 0
+        if "depo" in k and "pr_out" in k: return 1
+        if "depo" in k and "kp"     in k: return 2
+        if "depo" in k and "kw"     in k: return 3
+        if "bankomat" in k and "kp" in k: return 4
+        if "bankomat" in k and "kw" in k: return 5
+        return 6
+
+    sections[SEP_NIEZNANE] = sorted(
+        frozen_nieznane + unmatched_rows,
+        key=_nieznane_sort_key,
+    )
 
     # Weryfikacja: policz i zsumuj wiersze z danymi wyciagu (col H niepusta)
     # Obejmuje: sparowane (w sekcjach) + niesparowane (SEP_NIEZNANE) + zamrozone (status=2)
