@@ -1300,10 +1300,10 @@ def sync_parowanie(worksheet, transactions):
             sections[sep][row_idx] = r
             unmatched_count += 1
 
-    # Wstaw sub-wiersze dla multi-parowan (extras) — od konca zeby nie przesuwac indeksow
+    # Wstaw sub-wiersze dla multi-parowan (extras) — tylko sprzedaz i wlasciciele
     if extras:
         flat_to_pos = {c[0]: (c[1], c[2]) for c in candidates}
-        for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
+        for sep in [SEP_SPRZEDAZ, SEP_WLASC]:
             inserts = []   # (row_idx, [sub_rows])
             for flat_idx, extra_tx_idxs in extras.items():
                 pos_sep, pos_row_idx = flat_to_pos[flat_idx]
@@ -1323,7 +1323,8 @@ def sync_parowanie(worksheet, transactions):
 
     # Dodatkowe TX dla zamrozonych wierszy (status=2) pasujace po nazwisku/imieniu
     # np. najemca placi fakture w dwoch przelewach — drugi przelew jako sub-wiersz
-    for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
+    # Wyjątek: faktury kosztowe — brak sub-wierszy
+    for sep in [SEP_SPRZEDAZ, SEP_WLASC]:
         by_row = {}   # {row_idx: [sub_rows]}
         for row_idx, row in enumerate(sections[sep]):
             if not (row[0] if row else ""):
