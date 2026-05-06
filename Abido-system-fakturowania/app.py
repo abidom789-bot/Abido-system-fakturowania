@@ -1203,11 +1203,9 @@ def _build_sub_row(tx, klucz):
 
 def _build_unmatched_row(tx):
     """Buduje wiersz dla niesparowanej transakcji z wyciagu (A i B puste)."""
-    rodzaj_low    = str(tx.get("rodzaj", "")).lower()
-    tytul_low     = str(tx.get("tytul", "")).lower()
     kontrahent_low = str(tx.get("kontrahent", "")).lower()
-    combined      = kontrahent_low + " " + tytul_low
-    if "blik" in rodzaj_low or "blik" in tytul_low:
+    combined       = kontrahent_low + " " + str(tx.get("tytul", "")).lower()
+    if "bankomat" in kontrahent_low:
         klucz = "roz_bankomat_rk_kw" if tx["kwota"] > 0 else "roz_bankomat_rk_kp"
     elif "urz" in combined and "skarbowy" in combined:
         klucz = "kos_pod_pr_out"
@@ -1234,35 +1232,53 @@ def _build_unmatched_row(tx):
 def sync_parowanie(worksheet, transactions):
     """
     Paruje wiersze ze statusem 1 z transakcjami bankowymi.
-    Status 2 — nietykalny. Status 0 — pomijany.
+    Status 2 — nietykalny (fizycznie wyjety z sekcji przed parowaniem, wracaja po).
+    Status 0 — pomijany.
     Niesparowane transakcje bankowe laduja na dole w sekcji SEP_NIEZNANE.
     Wiersze sparowane tylko po nazwie (bez kwoty) dostaja kolor fioletowy.
-    Zwraca (sparowane, niesparowane_z_wyciagu, fioletowe).
     """
     sections = read_all_sections(worksheet)
 
+    # ── KROK 0: Snapshot status=2 ──────────────────────────────────────────────
+    # Fizycznie wyjmij zamrozone wiersze ze wszystkich sekcji zanim cokolwiek
+    # zostanie dotkniete. Zadna petla parowania ich nie zobaczy.
+    frozen_backup = {}
+    for sep in SECTION_ORDER:
+        frozen, active = [], []
+        for row in sections[sep]:
+            if len(row) > 2 and str(row[2]).strip() == "2":
+                frozen.append(row)
+            else:
+                active.append(row)
+        frozen_backup[sep] = frozen
+        sections[sep] = active
+
+    # ── Kandydaci do parowania ─────────────────────────────────────────────────
     _DIRECTION = {SEP_KOSZTOWE: -1, SEP_SPRZEDAZ: 1, SEP_WLASC: -1}
     candidates = []   # (flat_idx, section, row_idx_in_section, name, amount, direction)
     for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
         for i, row in enumerate(sections[sep]):
             if not (row[0] if row else ""):
-                continue   # sub-wiersz (puste A) — nie jest kandydatem do parowania
+                continue   # sub-wiersz (puste A) — nie jest kandydatem
             if str(row[2]).strip() in ("1", "9"):
                 amount = _parse_amount(row[1] if len(row) > 1 else "")
                 candidates.append((len(candidates), sep, i, row[0], amount, _DIRECTION[sep]))
 
-    pre_used = _frozen_tx_pre_used(sections, transactions)
+    # TX juz uzyte przez zamrozone wiersze — skanujemy frozen_backup
+    real_pre_used = _frozen_tx_pre_used(frozen_backup, transactions)
 
-    # Bankomat/Blik — wyklucz z parowania: nigdy nie pasuja do faktur po nazwie
-    blik_indices = {
+    # Bankomat — wyklucz z parowania (tylko "bankomat" w kontrahencie)
+    # Nie uzywamy "blik" w tytule/rodzaju — platnosci BLIK przez PayU/OLX
+    # to koszty, nie transakcje bankomatowe.
+    bankomat_indices = {
         i for i, tx in enumerate(transactions)
-        if "blik"     in str(tx.get("rodzaj",     "")).lower()
-        or "blik"     in str(tx.get("tytul",      "")).lower()
-        or "bankomat" in str(tx.get("kontrahent", "")).lower()
+        if "bankomat" in str(tx.get("kontrahent", "")).lower()
     }
-    pre_used = pre_used | blik_indices
+    # Tylko bankomaty ktore NIE sa juz zamrozone — te wylaczamy z parowania
+    bankomat_excluded = bankomat_indices - real_pre_used
+    pre_used = real_pre_used | bankomat_excluded
 
-    # Dla statusu=9: znajdz stary TX i zablokuj ponowne parowanie z nim
+    # ── Status=9: zablokuj ponowne sparowanie ze starym TX ────────────────────
     def _tx_sig(tx):
         return (round(tx["kwota"], 2), str(tx["data_ks"]).strip(),
                 str(tx["nr_rachunku"]).strip(), str(tx["tytul"]).strip()[:20])
@@ -1288,12 +1304,12 @@ def sync_parowanie(worksheet, transactions):
 
     flat = [(c[0], c[3], c[4], c[5]) for c in candidates]
     matched, name_only, extras, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked)
-    # Blik/bankomat musi trafic do SEP_NIEZNANE — usun z used_tx zeby nie "znikly"
-    used_tx -= blik_indices
+    # Bankomat TX (nie-zamrozone) ida do SEP_NIEZNANE — usun z used_tx
+    used_tx -= bankomat_excluded
 
     unmatched_count = 0
 
-    # Zapisz wyniki parowania do wierszy
+    # ── Zapisz wyniki parowania do wierszy ────────────────────────────────────
     for flat_idx, sep, row_idx, name, amount, direction in candidates:
         row = sections[sep][row_idx]
         tx_idx = matched.get(flat_idx)
@@ -1303,14 +1319,12 @@ def sync_parowanie(worksheet, transactions):
             r = _build_paired_row(row, tx, klucz)
             if str(r[2]).strip() == "9":
                 r[2] = "1"
-            # Kwota sie nie zgadza → fioletowy marker
             tx_amount = abs(round(tx["kwota"], 2))
             inv_amount = _parse_amount(row[1] if len(row) > 1 else "")
             if flat_idx in name_only or (inv_amount is not None and round(inv_amount, 2) != tx_amount):
                 r[16] = _PURPLE_MARKER
             sections[sep][row_idx] = r
         else:
-            # Brak pary — pomaranczowy marker
             klucz = assign_klucz_ksiegowy(sep, None, row[1] if len(row) > 1 else "", row[0] if row else "")
             r = list(row) + [""] * max(0, 17 - len(row))
             if str(r[2]).strip() == "9":
@@ -1322,11 +1336,11 @@ def sync_parowanie(worksheet, transactions):
             sections[sep][row_idx] = r
             unmatched_count += 1
 
-    # Wstaw sub-wiersze dla multi-parowan (extras) — tylko sprzedaz i wlasciciele
+    # ── Sub-wiersze dla multi-parowan (extras) ────────────────────────────────
     if extras:
         flat_to_pos = {c[0]: (c[1], c[2]) for c in candidates}
         for sep in [SEP_SPRZEDAZ, SEP_WLASC]:
-            inserts = []   # (row_idx, [sub_rows])
+            inserts = []
             for flat_idx, extra_tx_idxs in extras.items():
                 pos_sep, pos_row_idx = flat_to_pos[flat_idx]
                 if pos_sep != sep:
@@ -1343,16 +1357,15 @@ def sync_parowanie(worksheet, transactions):
                 for i, sr in enumerate(sub_rows_list):
                     sections[sep].insert(row_idx + 1 + i, sr)
 
-    # Dodatkowe TX dla zamrozonych wierszy (status=2) pasujace po nazwisku/imieniu
-    # np. najemca placi fakture w dwoch przelewach — drugi przelew jako sub-wiersz
-    # Wyjątek: faktury kosztowe — brak sub-wierszy
+    # ── Dodatkowe TX dla zamrozonych wierszy pasujace po nazwie ───────────────
+    # Skanujemy frozen_backup (nie sections — tam juz ich nie ma).
+    # Sub-wiersze doczelane SA do sekcji aktywnych (dolaczone na koniec sekcji
+    # razem z frozen rows przy scalaniu ponizej).
+    frozen_sub_rows = {sep: {} for sep in [SEP_SPRZEDAZ, SEP_WLASC]}
     for sep in [SEP_SPRZEDAZ, SEP_WLASC]:
-        by_row = {}   # {row_idx: [sub_rows]}
-        for row_idx, row in enumerate(sections[sep]):
+        for row_idx, row in enumerate(frozen_backup[sep]):
             if not (row[0] if row else ""):
-                continue   # sub-wiersz — pomijamy
-            if str(row[2]).strip() != "2":
-                continue   # tylko zamrozone
+                continue
             tokens = _extract_name_tokens(row[0])
             if not tokens:
                 continue
@@ -1371,35 +1384,35 @@ def sync_parowanie(worksheet, transactions):
                     klucz = assign_klucz_ksiegowy(sep, tx, row[1] if len(row) > 1 else "", row[0])
                     sub_list.append(_build_sub_row(tx, klucz))
                     used_tx.add(tx_i)
-                by_row[row_idx] = sub_list
-        # Wstaw od poczatku z przesuniecia offset
-        offset = 0
-        for orig_idx in sorted(by_row.keys()):
-            actual_idx = orig_idx + offset
-            for i, sr in enumerate(by_row[orig_idx]):
-                sections[sep].insert(actual_idx + 1 + i, sr)
-            offset += len(by_row[orig_idx])
+                frozen_sub_rows[sep][row_idx] = sub_list
 
-    # Zachowaj zamrozone wiersze (status=2) z istniejacego SEP_NIEZNANE —
-    # moga to byc recznie stworzone wpisy lub TX z poprzednich miesiecy.
-    # Deduplikuj po sygnaturze TX (jesli ten sam TX wpadl dwa razy przez poprzedni bug).
+    # ── KROK N: Przywroc zamrozone wiersze do sekcji ──────────────────────────
+    # Frozen rows SA na poczatku sekcji, aktywne po nich.
+    # Dla SEP_SPRZEDAZ i SEP_WLASC: po kazdym frozen row wstawiamy jego sub-wiersze.
+    for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
+        merged_frozen = []
+        for row_idx, row in enumerate(frozen_backup[sep]):
+            merged_frozen.append(row)
+            if sep in frozen_sub_rows and row_idx in frozen_sub_rows[sep]:
+                merged_frozen.extend(frozen_sub_rows[sep][row_idx])
+        sections[sep] = merged_frozen + sections[sep]
+
+    # ── SEP_NIEZNANE: zamrozone z backupu + niesparowane ─────────────────────
+    # Deduplikuj po sygnaturze TX (na wypadek gdyby poprzedni bug zostawil kopie)
     _seen_frozen_sigs = set()
     frozen_nieznane = []
-    for r in sections.get(SEP_NIEZNANE, []):
-        if len(r) <= 2 or str(r[2]).strip() != "2":
-            continue
-        if len(r) > 9 and str(r[9]).strip():   # wiersz z danymi bankowymi
+    for r in frozen_backup.get(SEP_NIEZNANE, []):
+        if len(r) > 9 and str(r[9]).strip():
             try:
                 _kw = round(float(re.sub(r"[^\d,.\-]", "", str(r[8])).replace(",", ".")), 2)
             except (ValueError, TypeError):
                 _kw = 0.0
             _sig = (_kw, str(r[9]).strip(), str(r[14]).strip() if len(r) > 14 else "")
             if _sig in _seen_frozen_sigs:
-                continue   # duplikat — pomin
+                continue
             _seen_frozen_sigs.add(_sig)
         frozen_nieznane.append(r)
 
-    # Niesparowane transakcje z wyciagu → SEP_NIEZNANE (zastepowane, ale zamrozone zostaja)
     unmatched_rows = [
         _build_unmatched_row(transactions[i])
         for i in range(len(transactions))
