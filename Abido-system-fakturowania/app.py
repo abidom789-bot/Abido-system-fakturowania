@@ -1369,17 +1369,53 @@ def sync_parowanie(worksheet, transactions):
     # Obejmuje: sparowane (w sekcjach) + niesparowane (SEP_NIEZNANE) + zamrozone (status=2)
     sheet_tx_count = 0
     sheet_tx_sum   = 0.0
+    sheet_rows_with_bank = []   # (sig, row) — do diagnostyki
     for sec_rows in sections.values():
         for r in sec_rows:
             if len(r) > 7 and str(r[7]).strip():   # col H = wyciag_Kontrahent
                 sheet_tx_count += 1
-                if len(r) > 8 and str(r[8]).strip():
-                    try:
-                        sheet_tx_sum += float(
-                            re.sub(r"[^\d,.\-]", "", str(r[8])).replace(",", ".")
-                        )
-                    except (ValueError, TypeError):
-                        pass
+                try:
+                    kwota_r = float(re.sub(r"[^\d,.\-]", "", str(r[8])).replace(",", ".")) if len(r) > 8 and str(r[8]).strip() else 0.0
+                except (ValueError, TypeError):
+                    kwota_r = 0.0
+                if kwota_r:
+                    sheet_tx_sum += kwota_r
+                sig = (
+                    round(kwota_r, 2),
+                    str(r[9]).strip() if len(r) > 9 else "",
+                    str(r[14]).strip() if len(r) > 14 else "",
+                    str(r[10]).strip()[:30] if len(r) > 10 else "",
+                )
+                sheet_rows_with_bank.append((sig, r))
+
+    # Diagnostyka: ktore TX sa w pliku ale nie w arkuszu i odwrotnie
+    from collections import Counter as _Counter
+    def _tx_sig(tx):
+        return (round(float(tx["kwota"]), 2), str(tx["data_ks"]).strip(),
+                str(tx["nr_rachunku"]).strip(), str(tx["tytul"]).strip()[:30])
+
+    file_sig_counter  = _Counter(_tx_sig(tx) for tx in transactions)
+    sheet_sig_counter = _Counter(sig for sig, _ in sheet_rows_with_bank)
+
+    missing_sigs = file_sig_counter - sheet_sig_counter
+    extra_sigs   = sheet_sig_counter - file_sig_counter
+
+    missing_txs = []
+    used_m = _Counter()
+    for tx in transactions:
+        sig = _tx_sig(tx)
+        if missing_sigs[sig] > used_m[sig]:
+            missing_txs.append(tx)
+            used_m[sig] += 1
+
+    extra_rows = []
+    used_e = _Counter()
+    for sig, r in sheet_rows_with_bank:
+        if extra_sigs[sig] > used_e[sig]:
+            extra_rows.append(r)
+            used_e[sig] += 1
+
+    diff_info = {"missing": missing_txs, "extra": extra_rows}
 
     rebuild_sheet(worksheet, sections)
 
@@ -1413,6 +1449,7 @@ def sync_parowanie(worksheet, transactions):
         len(purple_rows), unmatched_count,
         tx_total, round(tx_sum, 2),
         sheet_tx_count, round(sheet_tx_sum, 2),
+        diff_info,
     )
 
 
@@ -2295,7 +2332,8 @@ if btn_paruj:
                         client.open_by_key(SPREADSHEET_ID), name
                     )
                     (sparowane, niesparowane, fioletowe, pomaranczowe,
-                     tx_total, tx_sum, sheet_tx_count, sheet_tx_sum) = sync_parowanie(worksheet, transactions)
+                     tx_total, tx_sum, sheet_tx_count, sheet_tx_sum,
+                     diff_info) = sync_parowanie(worksheet, transactions)
 
                 parts = [f"Sparowano: {sparowane}"]
                 if fioletowe:
@@ -2319,6 +2357,39 @@ if btn_paruj:
                     f"Plik {tx_sum:,.2f} PLN / Arkusz {sheet_tx_sum:,.2f} PLN"
                     f"{'  ✓' if ok_sum else f'  ← RÓŻNICA: {sheet_tx_sum - tx_sum:+.2f} PLN'}"
                 )
+
+                # Diagnostyka rozbieznosci
+                if not ok_count or not ok_sum:
+                    missing = diff_info.get("missing", [])
+                    extra   = diff_info.get("extra", [])
+                    if missing:
+                        st.warning(f"**Brakuje w arkuszu** ({len(missing)} poz.) — są w pliku, nie ma w arkuszu:")
+                        rows_m = []
+                        for tx in missing:
+                            rows_m.append({
+                                "Kwota": tx["kwota"],
+                                "Data KS": tx["data_ks"],
+                                "Kontrahent": tx["kontrahent"].split("|")[0],
+                                "Nr rachunku": tx["nr_rachunku"],
+                                "Tytuł": tx["tytul"][:60],
+                            })
+                        st.dataframe(rows_m, use_container_width=True)
+                    if extra:
+                        st.warning(f"**Nadmiarowe w arkuszu** ({len(extra)} poz.) — są w arkuszu, nie ma w pliku:")
+                        rows_e = []
+                        for r in extra:
+                            try:
+                                kwota_e = float(re.sub(r"[^\d,.\-]", "", str(r[8])).replace(",", ".")) if len(r) > 8 else 0.0
+                            except (ValueError, TypeError):
+                                kwota_e = 0.0
+                            rows_e.append({
+                                "Kwota": kwota_e,
+                                "Data KS": r[9] if len(r) > 9 else "",
+                                "Kontrahent": r[7] if len(r) > 7 else "",
+                                "Nr rachunku": r[14] if len(r) > 14 else "",
+                                "Tytuł": str(r[10])[:60] if len(r) > 10 else "",
+                            })
+                        st.dataframe(rows_e, use_container_width=True)
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
