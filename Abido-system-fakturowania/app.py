@@ -1031,13 +1031,14 @@ def _frozen_tx_pre_used(sections, transactions):
     return pre_used
 
 
-def pair_transactions(candidates, transactions, pre_used=None):
+def pair_transactions(candidates, transactions, pre_used=None, blocked=None):
     """
     Paruje kandydatow (wiersze arkusza) z transakcjami bankowymi w 5 przebiegach.
     candidates: lista (idx, name, amount_float, direction)
                 direction: 1 = wpływ (sprzedaz), -1 = wydatek (kosztowe, wlasciciele)
     transactions: lista slownikow transakcji
     pre_used: zbior indeksow transakcji juz uzytych (status=2)
+    blocked:  slownik {cand_idx: tx_idx} — kandydat NIE moze wrocic do starego TX (status=9)
     Zwraca: (matched, name_only, used_tx)
       matched:   {cand_idx: tx_idx} — wszystkie udane parowania
       name_only: set(cand_idx)      — sparowane po nazwie bez zgodnosci kwoty (fioletowe)
@@ -1046,16 +1047,23 @@ def pair_transactions(candidates, transactions, pre_used=None):
     matched   = {}
     name_only = set()
     used_tx   = set(pre_used) if pre_used else set()
+    blocked   = blocked or {}
 
-    def free_by_amount(amount, direction):
+    def ok(cand_idx, tx_idx):
+        """True jesli TX nie jest zablokowana dla tego kandydata."""
+        return blocked.get(cand_idx) != tx_idx
+
+    def free_by_amount(cand_idx, amount, direction):
         return [i for i, tx in enumerate(transactions)
                 if i not in used_tx
+                and ok(cand_idx, i)
                 and _parse_amount(tx["kwota"]) == amount
                 and tx["kwota"] * direction > 0]
 
-    def free_by_direction(direction):
+    def free_by_direction(cand_idx, direction):
         return [i for i, tx in enumerate(transactions)
                 if i not in used_tx
+                and ok(cand_idx, i)
                 and tx["kwota"] * direction > 0]
 
     def assign(cand_idx, tx_idx):
@@ -1069,7 +1077,7 @@ def pair_transactions(candidates, transactions, pre_used=None):
         tokens = _extract_name_tokens(name)
         if not tokens:
             continue
-        hits = [i for i in free_by_amount(amount, direction) if _search_token(transactions[i], tokens[-1])]
+        hits = [i for i in free_by_amount(idx, amount, direction) if _search_token(transactions[i], tokens[-1])]
         if hits:
             assign(idx, hits[0])
 
@@ -1080,7 +1088,7 @@ def pair_transactions(candidates, transactions, pre_used=None):
         tokens = _extract_name_tokens(name)
         if not tokens:
             continue
-        hits = [i for i in free_by_amount(amount, direction) if _search_token(transactions[i], tokens[0])]
+        hits = [i for i in free_by_amount(idx, amount, direction) if _search_token(transactions[i], tokens[0])]
         if hits:
             assign(idx, hits[0])
 
@@ -1091,7 +1099,7 @@ def pair_transactions(candidates, transactions, pre_used=None):
         tokens = _extract_name_tokens(name)
         if not tokens:
             continue
-        hits = [i for i in free_by_direction(direction) if _search_token(transactions[i], tokens[-1])]
+        hits = [i for i in free_by_direction(idx, direction) if _search_token(transactions[i], tokens[-1])]
         if len(hits) == 1:
             assign(idx, hits[0])
             name_only.add(idx)
@@ -1103,7 +1111,7 @@ def pair_transactions(candidates, transactions, pre_used=None):
         tokens = _extract_name_tokens(name)
         if not tokens:
             continue
-        hits = [i for i in free_by_direction(direction) if _search_token(transactions[i], tokens[0])]
+        hits = [i for i in free_by_direction(idx, direction) if _search_token(transactions[i], tokens[0])]
         if len(hits) == 1:
             assign(idx, hits[0])
             name_only.add(idx)
@@ -1112,7 +1120,7 @@ def pair_transactions(candidates, transactions, pre_used=None):
     for idx, name, amount, direction in candidates:
         if idx in matched or amount is None:
             continue
-        pool = free_by_amount(amount, direction)
+        pool = free_by_amount(idx, amount, direction)
         if len(pool) == 1:
             assign(idx, pool[0])
 
@@ -1176,8 +1184,32 @@ def sync_parowanie(worksheet, transactions):
 
     pre_used = _frozen_tx_pre_used(sections, transactions)
 
+    # Dla statusu=9: znajdz stary TX i zablokuj ponowne parowanie z nim
+    def _tx_sig(tx):
+        return (round(tx["kwota"], 2), str(tx["data_ks"]).strip(),
+                str(tx["nr_rachunku"]).strip(), str(tx["tytul"]).strip()[:20])
+
+    blocked = {}
+    for flat_idx, sep, row_idx, name, amount, direction in candidates:
+        row = sections[sep][row_idx]
+        if str(row[2]).strip() != "9":
+            continue
+        if len(row) <= 9 or not str(row[9]).strip():
+            continue
+        try:
+            old_kwota = round(float(re.sub(r"[^\d,.\-]", "", str(row[8])).replace(",", ".")), 2)
+        except (ValueError, TypeError):
+            continue
+        old_sig = (old_kwota, str(row[9]).strip(),
+                   str(row[14]).strip() if len(row) > 14 else "",
+                   str(row[10]).strip()[:20] if len(row) > 10 else "")
+        for i, tx in enumerate(transactions):
+            if _tx_sig(tx) == old_sig:
+                blocked[flat_idx] = i
+                break
+
     flat = [(c[0], c[3], c[4], c[5]) for c in candidates]
-    matched, name_only, used_tx = pair_transactions(flat, transactions, pre_used=pre_used)
+    matched, name_only, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked)
 
     unmatched_count = 0
 
