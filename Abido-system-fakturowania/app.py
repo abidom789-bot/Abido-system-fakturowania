@@ -1586,9 +1586,9 @@ def _kp_kw_opis(klucz, col_a):
     if "roz_depo_all" in klucz and "_rk_kw" in klucz:
         return f"Zwrot kaucji — {col_a}" if col_a else "Zwrot kaucji"
     if "bankomat" in klucz and "_rk_kp" in klucz:
-        return "Wpłata bankomat/BLIK"
+        return "Wypłata z banku do kasy"
     if "bankomat" in klucz and "_rk_kw" in klucz:
-        return "Wypłata bankomat/BLIK"
+        return "Wpłata do banku z kasy"
     return col_a if col_a else klucz
 
 
@@ -1623,8 +1623,19 @@ def _extract_rk_entries(sections):
     return kp, kw
 
 
+_KPKW_HEADER_BG = {"red": 0.20, "green": 0.44, "blue": 0.69}   # ciemny niebieski
+_KPKW_CAT_KP_BG = {"red": 0.78, "green": 0.92, "blue": 0.78}  # zielony nagłówek kategorii
+_KPKW_CAT_KW_BG = {"red": 0.96, "green": 0.78, "blue": 0.78}  # czerwony nagłówek kategorii
+_KPKW_DATA_KP   = {"red": 0.92, "green": 0.98, "blue": 0.90}  # bardzo jasny zielony
+_KPKW_DATA_KW   = {"red": 0.99, "green": 0.92, "blue": 0.90}  # bardzo jasny różowy
+_KPKW_STAN_BG   = {"red": 1.0,  "green": 0.95, "blue": 0.77}  # złoty — stan kasy
+_WHITE          = {"red": 1.0,  "green": 1.0,  "blue": 1.0}
+
+
 def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries):
-    """Buduje listę 7-kolumnowych wierszy dla bloku miesięcznego."""
+    """Buduje (rows, row_types) dla bloku miesięcznego.
+    row_types: 'marker' | 'header' | 'cat_header' | 'data' | 'separator'
+    """
     kp_total = sum(e[2] for e in kp_entries)
     kw_total = sum(e[2] for e in kw_entries)
     balance  = kp_total - kw_total
@@ -1638,22 +1649,27 @@ def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries):
     kp_by_cat = group(kp_entries)
     kw_by_cat = group(kw_entries)
 
-    rows = []
-    rows.append([_KP_KW_MARKER.format(subfolder_name), "", "", "", "", "", ""])
-    rows.append([
+    rows, types = [], []
+
+    def add(row, rtype):
+        rows.append(row)
+        types.append(rtype)
+
+    add([_KP_KW_MARKER.format(subfolder_name), "", "", "", "", "", ""], "marker")
+    add([
         _month_label_pl(subfolder_name),
         f"KP: +{kp_total:,.2f} PLN", "",
         "",
         f"KW: -{kw_total:,.2f} PLN",
         f"Bilans: {balance:+,.2f} PLN",
         "",
-    ])
+    ], "header")
 
     for cat in sorted(set(list(kp_by_cat) + list(kw_by_cat))):
         kp_cat = kp_by_cat.get(cat, [])
         kw_cat = kw_by_cat.get(cat, [])
-        rows.append([_CAT_LABELS_KP.get(cat, ""), "", "", "",
-                     _CAT_LABELS_KW.get(cat, ""), "", ""])
+        add([_CAT_LABELS_KP.get(cat, ""), "", "", "",
+             _CAT_LABELS_KW.get(cat, ""), "", ""], "cat_header")
         for i in range(max(len(kp_cat), len(kw_cat))):
             kp_part = ["", "", ""]
             kw_part = ["", "", ""]
@@ -1663,10 +1679,25 @@ def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries):
             if i < len(kw_cat):
                 k, a, q, d = kw_cat[i]
                 kw_part = [d, _kp_kw_opis(k, a), round(q, 2)]
-            rows.append(kp_part + [""] + kw_part)
+            add(kp_part + [""] + kw_part, "data")
 
-    rows.append(["", "", "", "", "", "", ""])
-    return rows
+    add(["", "", "", "", "", "", ""], "separator")
+    return rows, types
+
+
+def _fmt_ranges(row_nums):
+    """Zamienia listę numerów wierszy na listę (start, end) ciągłych zakresów."""
+    if not row_nums:
+        return []
+    segs, start, prev = [], row_nums[0], row_nums[0]
+    for r in row_nums[1:]:
+        if r == prev + 1:
+            prev = r
+        else:
+            segs.append((start, prev))
+            start = prev = r
+    segs.append((start, prev))
+    return segs
 
 
 def refresh_kp_kw(spreadsheet, subfolder_name, sections):
@@ -1677,12 +1708,12 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         ws = spreadsheet.add_worksheet(title=_KP_KW_SHEET, rows=600, cols=10)
 
     kp_entries, kw_entries = _extract_rk_entries(sections)
-    block = _build_kp_kw_block(subfolder_name, kp_entries, kw_entries)
+    block, row_types = _build_kp_kw_block(subfolder_name, kp_entries, kw_entries)
 
     marker     = _KP_KW_MARKER.format(subfolder_name)
     all_vals   = ws.get_all_values()
-    start_row  = None   # 1-based
-    end_row    = None   # 1-based, exclusive
+    start_row  = None
+    end_row    = None
 
     for i, row in enumerate(all_vals):
         val = str(row[0]).strip() if row else ""
@@ -1693,16 +1724,49 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
             break
 
     if start_row is None:
-        # Nie ma jeszcze bloku — wstaw po wierszu 1 (stan kasy)
         insert_at = 2 if all_vals and any(c for c in all_vals[0]) else 1
         ws.insert_rows(block, row=insert_at)
+        start_row = insert_at
     else:
         if end_row is None:
             end_row = len(all_vals) + 1
         ws.delete_rows(start_row, end_row - 1)
         ws.insert_rows(block, row=start_row)
 
-    # Stan kasy = suma ze wszystkich arkuszy MMYYYY
+    # ── Formatowanie bloku ────────────────────────────────────────
+    # Zbierz numery wierszy według typu
+    type_rows = {"header": [], "cat_header": [], "data": [], "marker": [], "separator": []}
+    for i, rtype in enumerate(row_types):
+        type_rows[rtype].append(start_row + i)
+
+    # Reset tła bloku do białego
+    block_end = start_row + len(block) - 1
+    ws.format(f"A{start_row}:G{block_end}", {"backgroundColor": _WHITE})
+
+    # Marker: jasny szary
+    for r in type_rows["marker"]:
+        ws.format(f"A{r}:G{r}", {"backgroundColor": {"red": 0.93, "green": 0.93, "blue": 0.93}})
+
+    # Nagłówek miesiąca: ciemny niebieski, biały tekst, pogrubiony
+    for r in type_rows["header"]:
+        ws.format(f"A{r}:G{r}", {
+            "backgroundColor": _KPKW_HEADER_BG,
+            "textFormat": {"bold": True, "foregroundColor": _WHITE},
+        })
+
+    # Nagłówki kategorii: zielony (KP) i czerwony (KW)
+    for r in type_rows["cat_header"]:
+        ws.format(f"A{r}:C{r}", {"backgroundColor": _KPKW_CAT_KP_BG,
+                                  "textFormat": {"bold": True}})
+        ws.format(f"E{r}:G{r}", {"backgroundColor": _KPKW_CAT_KW_BG,
+                                  "textFormat": {"bold": True}})
+
+    # Wiersze danych: jasny zielony KP / jasny różowy KW
+    for r in type_rows["data"]:
+        ws.format(f"A{r}:C{r}", {"backgroundColor": _KPKW_DATA_KP})
+        ws.format(f"E{r}:G{r}", {"backgroundColor": _KPKW_DATA_KW})
+
+    # ── Stan kasy — wiersz 1 ─────────────────────────────────────
     stan_kp = stan_kw = 0.0
     for ws_obj in spreadsheet.worksheets():
         if not re.match(r'^\d{6}$', ws_obj.title):
@@ -1721,6 +1785,10 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         f"-{stan_kw:,.2f} PLN KW", "",
         f"{stan:+,.2f} PLN",
     ]])
+    ws.format("A1:G1", {
+        "backgroundColor": _KPKW_STAN_BG,
+        "textFormat": {"bold": True},
+    })
 
 
 # ----------------------------------------------------------------
