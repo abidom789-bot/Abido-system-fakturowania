@@ -1060,6 +1060,7 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None):
     """
     matched   = {}
     name_only = set()
+    extras    = {}   # {flat_idx: [tx_idx, ...]} — dodatkowe TX do sub-wierszy (multi-parowanie)
     used_tx   = set(pre_used) if pre_used else set()
     blocked   = blocked or {}
 
@@ -1106,7 +1107,7 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None):
         if hits:
             assign(idx, hits[0])
 
-    # Przebieg 3: nazwisko (bez kwoty) — dokladnie 1 TX pasuje → sparuj (fioletowe)
+    # Przebieg 3: nazwisko (bez kwoty) — WSZYSTKIE pasujace TX → multi-parowanie (fioletowe)
     for idx, name, amount, direction in candidates:
         if idx in matched:
             continue
@@ -1114,11 +1115,15 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None):
         if not tokens:
             continue
         hits = [i for i in free_by_direction(idx, direction) if _search_token(transactions[i], tokens[-1])]
-        if len(hits) == 1:
+        if hits:
             assign(idx, hits[0])
             name_only.add(idx)
+            if len(hits) > 1:
+                extras[idx] = hits[1:]
+                for tx_i in hits[1:]:
+                    used_tx.add(tx_i)
 
-    # Przebieg 4: imie (pierwszy token, bez kwoty) — dokladnie 1 TX → sparuj (fioletowe)
+    # Przebieg 4: imie (pierwszy token, bez kwoty) — WSZYSTKIE pasujace TX → multi-parowanie (fioletowe)
     for idx, name, amount, direction in candidates:
         if idx in matched:
             continue
@@ -1126,9 +1131,13 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None):
         if not tokens:
             continue
         hits = [i for i in free_by_direction(idx, direction) if _search_token(transactions[i], tokens[0])]
-        if len(hits) == 1:
+        if hits:
             assign(idx, hits[0])
             name_only.add(idx)
+            if len(hits) > 1:
+                extras[idx] = hits[1:]
+                for tx_i in hits[1:]:
+                    used_tx.add(tx_i)
 
     # Przebieg 5: sama kwota (ostatnia szansa, dokladnie 1 tx)
     for idx, name, amount, direction in candidates:
@@ -1138,7 +1147,7 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None):
         if len(pool) == 1:
             assign(idx, pool[0])
 
-    return matched, name_only, used_tx
+    return matched, name_only, extras, used_tx
 
 
 def _build_paired_row(existing_row, tx, klucz, uwagi=""):
@@ -1157,6 +1166,24 @@ def _build_paired_row(existing_row, tx, klucz, uwagi=""):
     row[15] = _extract_name_from_tx(tx)
     row[16] = uwagi
     return row
+
+
+def _build_sub_row(tx, klucz):
+    """Sub-wiersz: puste A i B, status=2 (zamrozony), dane TX w H-P."""
+    return [
+        "", "", "2", "", "", "",
+        klucz,
+        tx["kontrahent"].split("|")[0],
+        tx["kwota"],
+        tx["data_ks"],
+        tx["tytul"][:100],
+        tx["data_op"],
+        tx["rodzaj"],
+        tx["waluta"],
+        tx["nr_rachunku"],
+        _extract_name_from_tx(tx),
+        "",
+    ]
 
 
 def _build_unmatched_row(tx):
@@ -1192,6 +1219,8 @@ def sync_parowanie(worksheet, transactions):
     candidates = []   # (flat_idx, section, row_idx_in_section, name, amount, direction)
     for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
         for i, row in enumerate(sections[sep]):
+            if not (row[0] if row else ""):
+                continue   # sub-wiersz (puste A) — nie jest kandydatem do parowania
             if str(row[2]).strip() in ("1", "9"):
                 amount = _parse_amount(row[1] if len(row) > 1 else "")
                 candidates.append((len(candidates), sep, i, row[0], amount, _DIRECTION[sep]))
@@ -1223,7 +1252,7 @@ def sync_parowanie(worksheet, transactions):
                 break
 
     flat = [(c[0], c[3], c[4], c[5]) for c in candidates]
-    matched, name_only, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked)
+    matched, name_only, extras, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked)
 
     unmatched_count = 0
 
@@ -1255,6 +1284,27 @@ def sync_parowanie(worksheet, transactions):
             r[16] = _ORANGE_MARKER
             sections[sep][row_idx] = r
             unmatched_count += 1
+
+    # Wstaw sub-wiersze dla multi-parowan (extras) — od konca zeby nie przesuwac indeksow
+    if extras:
+        flat_to_pos = {c[0]: (c[1], c[2]) for c in candidates}
+        for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
+            inserts = []   # (row_idx, [sub_rows])
+            for flat_idx, extra_tx_idxs in extras.items():
+                pos_sep, pos_row_idx = flat_to_pos[flat_idx]
+                if pos_sep != sep:
+                    continue
+                sub_rows_list = []
+                for tx_i in extra_tx_idxs:
+                    tx = transactions[tx_i]
+                    klucz = assign_klucz_ksiegowy(sep, tx, "", "")
+                    sub_rows_list.append(_build_sub_row(tx, klucz))
+                if sub_rows_list:
+                    inserts.append((pos_row_idx, sub_rows_list))
+            inserts.sort(key=lambda x: x[0], reverse=True)
+            for row_idx, sub_rows_list in inserts:
+                for i, sr in enumerate(sub_rows_list):
+                    sections[sep].insert(row_idx + 1 + i, sr)
 
     # Niesparowane transakcje z wyciagu → SEP_NIEZNANE (zawsze zastepowane)
     sections[SEP_NIEZNANE] = [
