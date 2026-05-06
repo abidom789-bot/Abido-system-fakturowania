@@ -723,6 +723,8 @@ def read_all_sections(worksheet):
 
 _PURPLE_MARKER = "_purple"
 _PURPLE_BG     = {"red": 0.87, "green": 0.78, "blue": 0.97}
+_ORANGE_MARKER = "_orange"
+_ORANGE_BG     = {"red": 1.0,  "green": 0.88, "blue": 0.70}
 
 SEP_COLORS = {
     SEP_KOSZTOWE: {"red": 0.90, "green": 0.22, "blue": 0.22},  # czerwony
@@ -1034,14 +1036,14 @@ def pair_transactions(candidates, transactions, pre_used=None):
                 direction: 1 = wpływ (sprzedaz), -1 = wydatek (kosztowe, wlasciciele)
     transactions: lista slownikow transakcji
     pre_used: zbior indeksow transakcji juz uzytych (status=2)
-    Zwraca: (matched, purple, used_tx)
-      matched: {cand_idx: tx_idx}        — normalne parowanie
-      purple:  {cand_idx: [tx_idx, ...]} — parowanie po nazwie bez kwoty (fioletowe)
-      used_tx: set(tx_idx)
+    Zwraca: (matched, name_only, used_tx)
+      matched:   {cand_idx: tx_idx} — wszystkie udane parowania
+      name_only: set(cand_idx)      — sparowane po nazwie bez zgodnosci kwoty (fioletowe)
+      used_tx:   set(tx_idx)
     """
-    matched  = {}
-    purple   = {}
-    used_tx  = set(pre_used) if pre_used else set()
+    matched   = {}
+    name_only = set()
+    used_tx   = set(pre_used) if pre_used else set()
 
     def free_by_amount(amount, direction):
         return [i for i, tx in enumerate(transactions)
@@ -1065,8 +1067,7 @@ def pair_transactions(candidates, transactions, pre_used=None):
         tokens = _extract_name_tokens(name)
         if not tokens:
             continue
-        last_name = tokens[-1]
-        hits = [i for i in free_by_amount(amount, direction) if _search_token(transactions[i], last_name)]
+        hits = [i for i in free_by_amount(amount, direction) if _search_token(transactions[i], tokens[-1])]
         if hits:
             assign(idx, hits[0])
 
@@ -1077,42 +1078,33 @@ def pair_transactions(candidates, transactions, pre_used=None):
         tokens = _extract_name_tokens(name)
         if not tokens:
             continue
-        first_name = tokens[0]
-        hits = [i for i in free_by_amount(amount, direction) if _search_token(transactions[i], first_name)]
+        hits = [i for i in free_by_amount(amount, direction) if _search_token(transactions[i], tokens[0])]
         if hits:
             assign(idx, hits[0])
 
-    # Przebieg 3: nazwisko (bez kwoty)
-    #   — dokladnie 1 TX pasuje → normalne parowanie
-    #   — wiele TX pasuje     → fioletowe (niejednoznaczne)
+    # Przebieg 3: nazwisko (bez kwoty) — dokladnie 1 TX pasuje → sparuj (fioletowe)
     for idx, name, amount, direction in candidates:
-        if idx in matched or idx in purple:
+        if idx in matched:
             continue
         tokens = _extract_name_tokens(name)
         if not tokens:
             continue
-        last_name = tokens[-1]
-        hits = [i for i in free_by_direction(direction) if _search_token(transactions[i], last_name)]
+        hits = [i for i in free_by_direction(direction) if _search_token(transactions[i], tokens[-1])]
         if len(hits) == 1:
             assign(idx, hits[0])
-        elif len(hits) > 1:
-            purple[idx] = hits
+            name_only.add(idx)
 
-    # Przebieg 4: imie (pierwszy token, bez kwoty)
-    #   — dokladnie 1 TX pasuje → normalne parowanie
-    #   — wiele TX pasuje     → fioletowe (niejednoznaczne)
+    # Przebieg 4: imie (pierwszy token, bez kwoty) — dokladnie 1 TX → sparuj (fioletowe)
     for idx, name, amount, direction in candidates:
-        if idx in matched or idx in purple:
+        if idx in matched:
             continue
         tokens = _extract_name_tokens(name)
         if not tokens:
             continue
-        first_name = tokens[0]
-        hits = [i for i in free_by_direction(direction) if _search_token(transactions[i], first_name)]
+        hits = [i for i in free_by_direction(direction) if _search_token(transactions[i], tokens[0])]
         if len(hits) == 1:
             assign(idx, hits[0])
-        elif len(hits) > 1:
-            purple[idx] = hits
+            name_only.add(idx)
 
     # Przebieg 5: sama kwota (ostatnia szansa, dokladnie 1 tx)
     for idx, name, amount, direction in candidates:
@@ -1121,9 +1113,8 @@ def pair_transactions(candidates, transactions, pre_used=None):
         pool = free_by_amount(amount, direction)
         if len(pool) == 1:
             assign(idx, pool[0])
-            purple.pop(idx, None)  # usunieto z fioletowych jesli bylo
 
-    return matched, purple, used_tx
+    return matched, name_only, used_tx
 
 
 def _build_paired_row(existing_row, tx, klucz, uwagi=""):
@@ -1184,22 +1175,28 @@ def sync_parowanie(worksheet, transactions):
     pre_used = _frozen_tx_pre_used(sections, transactions)
 
     flat = [(c[0], c[3], c[4], c[5]) for c in candidates]
-    matched, purple, used_tx = pair_transactions(flat, transactions, pre_used=pre_used)
+    matched, name_only, used_tx = pair_transactions(flat, transactions, pre_used=pre_used)
+
+    unmatched_count = 0
 
     # Zapisz wyniki parowania do wierszy
     for flat_idx, sep, row_idx, name, amount, direction in candidates:
         row = sections[sep][row_idx]
         tx_idx = matched.get(flat_idx)
         if tx_idx is not None:
-            # Normalne parowanie
             tx = transactions[tx_idx]
             klucz = assign_klucz_ksiegowy(sep, tx, row[1] if len(row) > 1 else "", row[0] if row else "")
             r = _build_paired_row(row, tx, klucz)
             if str(r[2]).strip() == "9":
                 r[2] = "1"
+            # Kwota sie nie zgadza → fioletowy marker
+            tx_amount = abs(round(tx["kwota"], 2))
+            inv_amount = _parse_amount(row[1] if len(row) > 1 else "")
+            if flat_idx in name_only or (inv_amount is not None and round(inv_amount, 2) != tx_amount):
+                r[16] = _PURPLE_MARKER
             sections[sep][row_idx] = r
-        elif flat_idx in purple:
-            # Parowanie po nazwie bez kwoty — fioletowe, wyczysc kolumny wyciagu
+        else:
+            # Brak pary — pomaranczowy marker
             klucz = assign_klucz_ksiegowy(sep, None, row[1] if len(row) > 1 else "", row[0] if row else "")
             r = list(row) + [""] * max(0, 17 - len(row))
             if str(r[2]).strip() == "9":
@@ -1207,18 +1204,9 @@ def sync_parowanie(worksheet, transactions):
             r[6] = klucz
             for col in range(7, 16):
                 r[col] = ""
-            r[16] = _PURPLE_MARKER
+            r[16] = _ORANGE_MARKER
             sections[sep][row_idx] = r
-        else:
-            # Brak pary — klucz ksiegowy + wyczysc kolumny wyciagu
-            klucz = assign_klucz_ksiegowy(sep, None, row[1] if len(row) > 1 else "", row[0] if row else "")
-            r = list(row) + [""] * max(0, 17 - len(row))
-            if str(r[2]).strip() == "9":
-                r[2] = "1"
-            r[6] = klucz
-            for col in range(7, 17):
-                r[col] = ""
-            sections[sep][row_idx] = r
+            unmatched_count += 1
 
     # Niesparowane transakcje z wyciagu → SEP_NIEZNANE (zawsze zastepowane)
     sections[SEP_NIEZNANE] = [
@@ -1229,22 +1217,30 @@ def sync_parowanie(worksheet, transactions):
 
     rebuild_sheet(worksheet, sections)
 
-    # Kolorowanie fioletowych wierszy — szukamy markera w kolumnie Q, kolorujemy, usuwamy marker
+    # Kolorowanie wierszy po markerach w kolumnie Q
     all_vals = worksheet.get_all_values()
-    purple_row_nums = []
     clear_updates = []
+    purple_rows = []
+    orange_rows = []
     for row_i, row_vals in enumerate(all_vals):
-        if len(row_vals) > 16 and row_vals[16] == _PURPLE_MARKER:
-            row_num = row_i + 1  # 1-based
-            purple_row_nums.append(row_num)
+        if len(row_vals) <= 16:
+            continue
+        marker = row_vals[16]
+        row_num = row_i + 1
+        if marker == _PURPLE_MARKER:
+            purple_rows.append(row_num)
             clear_updates.append({"range": f"Q{row_num}", "values": [[""]]})
-    if purple_row_nums:
-        for row_num in purple_row_nums:
-            worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _PURPLE_BG})
-        if clear_updates:
-            worksheet.batch_update(clear_updates)
+        elif marker == _ORANGE_MARKER:
+            orange_rows.append(row_num)
+            clear_updates.append({"range": f"Q{row_num}", "values": [[""]]})
+    for row_num in purple_rows:
+        worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _PURPLE_BG})
+    for row_num in orange_rows:
+        worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _ORANGE_BG})
+    if clear_updates:
+        worksheet.batch_update(clear_updates)
 
-    return len(matched), len(sections[SEP_NIEZNANE]), len(purple)
+    return len(matched), len(sections[SEP_NIEZNANE]), len(purple_rows), unmatched_count
 
 
 # ----------------------------------------------------------------
@@ -2125,12 +2121,15 @@ if btn_paruj:
                     worksheet = get_or_create_worksheet(
                         client.open_by_key(SPREADSHEET_ID), name
                     )
-                    sparowane, niesparowane, fioletowe = sync_parowanie(worksheet, transactions)
+                    sparowane, niesparowane, fioletowe, pomaranczowe = sync_parowanie(worksheet, transactions)
 
-                msg = f"Gotowe! Sparowano: {sparowane} pozycji | Niesparowane z wyciagu: {niesparowane}"
+                parts = [f"Sparowano: {sparowane}"]
                 if fioletowe:
-                    msg += f" | Fioletowe (nazwa bez kwoty): {fioletowe}"
-                st.success(msg)
+                    parts.append(f"Fioletowe (niezgodna kwota): {fioletowe}")
+                if pomaranczowe:
+                    parts.append(f"Pomarańczowe (brak pary): {pomaranczowe}")
+                parts.append(f"Niesparowane z wyciągu: {niesparowane}")
+                st.success("Gotowe! " + " | ".join(parts))
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
