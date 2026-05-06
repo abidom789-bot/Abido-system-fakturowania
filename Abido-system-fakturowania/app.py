@@ -990,12 +990,14 @@ def assign_klucz_ksiegowy(section, tx, amount_b_str, filename=""):
 def _frozen_tx_pre_used(sections, transactions):
     """
     Zwraca zbior indeksow transakcji z wyciagu juz uzytych przez wiersze ze statusem 2.
+    Status=9 NIE blokuje TX — TX wraca do puli i moze sie ponownie sparowac lub
+    trafic do SEP_NIEZNANE. Dzieki temu TX nigdy nie "ginie".
     Sygnatura: (kwota, data_ks, nr_rachunku, tytul[:20]) — wystarczajaco unikalna.
     """
     frozen_sigs = set()
     for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
         for row in sections[sep]:
-            if str(row[2]).strip() not in ("2", "9"):
+            if str(row[2]).strip() != "2":   # tylko status=2 blokuje TX
                 continue
             if len(row) <= 9 or not str(row[9]).strip():
                 continue  # brak daty_ks = nigdy nie bylo sparowania
