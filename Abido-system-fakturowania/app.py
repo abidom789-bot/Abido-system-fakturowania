@@ -730,6 +730,8 @@ _PURPLE_MARKER = "_purple"
 _PURPLE_BG     = {"red": 0.87, "green": 0.78, "blue": 0.97}
 _ORANGE_MARKER = "_orange"
 _ORANGE_BG     = {"red": 1.0,  "green": 0.88, "blue": 0.70}
+_KP_BG         = {"red": 0.82, "green": 0.96, "blue": 0.77}   # kasa przyjela (gotowka wplyn)
+_KW_BG         = {"red": 0.97, "green": 0.82, "blue": 0.82}   # kasa wyplacila (gotowka wydat)
 
 SEP_COLORS = {
     SEP_KOSZTOWE: {"red": 0.90, "green": 0.22, "blue": 0.22},  # czerwony
@@ -743,15 +745,24 @@ def rebuild_sheet(worksheet, sections):
     """
     Zapisuje caly arkusz w poprawnej kolejnosci sekcji:
     Header → Kosztowe → Sprzedaz → Wlasciciele.
-    Pomija puste sekcje. Koloruje wiersze separatorow.
+    Pomija puste sekcje. Koloruje separatory i wiersze kp/kw.
     """
     all_new = [HEADER_ROW]
-    sep_row_nums = {}  # sep -> numer wiersza (1-based)
+    sep_row_nums = {}   # sep -> numer wiersza (1-based)
+    kp_rows = []        # wiersze z _rk_kp w kluczu (col G)
+    kw_rows = []        # wiersze z _rk_kw w kluczu (col G)
     for sep in SECTION_ORDER:
         if sections[sep]:
             all_new.append([sep, "", "", ""])
-            sep_row_nums[sep] = len(all_new)  # aktualny ostatni wiersz
-            all_new.extend(sections[sep])
+            sep_row_nums[sep] = len(all_new)
+            for row in sections[sep]:
+                all_new.append(row)
+                row_num = len(all_new)
+                klucz = str(row[6]).strip() if len(row) > 6 else ""
+                if "_rk_kp" in klucz:
+                    kp_rows.append(row_num)
+                elif "_rk_kw" in klucz:
+                    kw_rows.append(row_num)
     worksheet.clear()
     # Reset formatowania calego arkusza (clear() nie czysci kolorow)
     worksheet.format("A1:Q500", {
@@ -769,6 +780,10 @@ def rebuild_sheet(worksheet, sections):
                 "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
             },
         })
+    for row_num in kp_rows:
+        worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _KP_BG})
+    for row_num in kw_rows:
+        worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _KW_BG})
 
 
 def apply_sync_logic(existing_rows, new_data, has_address=False, default_status="0"):
