@@ -1012,7 +1012,7 @@ def assign_klucz_ksiegowy(section, tx, amount_b_str, filename=""):
     if section == SEP_SPRZEDAZ:
         return "prz_naj_pr_in" if kwota > 0 else "prz_naj_rk_kp"
     if section == SEP_WLASC:
-        return ("wla_med_pr_out" if _is_media(tx) else "wla_pr_out") if kwota < 0 else "wla_pr_in"
+        return ("kos_wla_med_pr_out" if _is_media(tx) else "kos_wla_pr_out") if kwota < 0 else "kos_wla_pr_in"
     return "nieznany_out" if kwota < 0 else "nieznany_in"
 
 
@@ -1203,11 +1203,16 @@ def _build_sub_row(tx, klucz):
 
 def _build_unmatched_row(tx):
     """Buduje wiersz dla niesparowanej transakcji z wyciagu (A i B puste)."""
-    rodzaj_low = str(tx.get("rodzaj", "")).lower()
-    tytul_low  = str(tx.get("tytul", "")).lower()
+    rodzaj_low    = str(tx.get("rodzaj", "")).lower()
+    tytul_low     = str(tx.get("tytul", "")).lower()
+    kontrahent_low = str(tx.get("kontrahent", "")).lower()
+    combined      = kontrahent_low + " " + tytul_low
     if "blik" in rodzaj_low or "blik" in tytul_low:
-        # Platnosci Blik: wplata (kwota > 0) lub wyplata (kwota < 0)
         klucz = "roz_bankomat_rk_kw" if tx["kwota"] > 0 else "roz_bankomat_rk_kp"
+    elif "urz" in combined and "skarbowy" in combined:
+        klucz = "kos_pod_pr_out"
+    elif "zakład ubezpieczeń" in combined or "zus" in combined:
+        klucz = "kos_zus_pr_out"
     else:
         klucz = "nieznany_out" if tx["kwota"] < 0 else "nieznany_in"
     return [
@@ -1398,7 +1403,9 @@ def sync_parowanie(worksheet, transactions):
         if "depo" in k and "kw"     in k: return 3
         if "bankomat" in k and "kp" in k: return 4
         if "bankomat" in k and "kw" in k: return 5
-        return 6
+        if "pod" in k:                    return 6
+        if "zus" in k:                    return 7
+        return 8
 
     sections[SEP_NIEZNANE] = sorted(
         frozen_nieznane + unmatched_rows,
