@@ -1735,17 +1735,8 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         if old_base:
             ws.update("H1", [[round(old_base, 2)]])  # zapisz raz na stałe
 
-    # ── Sumy ze wszystkich arkuszy MMYYYY ──────────────────────────
-    stan_kp = stan_kw = 0.0
-    for ws_obj in spreadsheet.worksheets():
-        if not re.match(r'^\d{6}$', ws_obj.title):
-            continue
-        try:
-            kp_e, kw_e = _extract_rk_entries(read_all_sections(ws_obj))
-            stan_kp += sum(e[2] for e in kp_e)
-            stan_kw += sum(e[2] for e in kw_e)
-        except Exception:
-            pass
+    # Bilans bieżącego miesiąca z wczytanych wpisów
+    bilans_current = sum(e[2] for e in kp_entries) - sum(e[2] for e in kw_entries)
 
     # ── Wyszukaj marker i wstaw/zastąp blok ───────────────────────
     marker    = _KP_KW_MARKER.format(subfolder_name)
@@ -1805,7 +1796,22 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         ws.format(f"E{r}:G{r}", {"backgroundColor": _KPKW_DATA_KW})
 
     # ── Stan kasy całkowity — A1 ──────────────────────────────────
-    stan_net = round(old_base + stan_kp - stan_kw, 2)
+    # Sumuj bilansy pozostałych miesięcy z istniejących bloków w Kp i Kw
+    # (z all_vals przed wstawieniem — bieżący miesiąc pomijamy)
+    current_marker = _KP_KW_MARKER.format(subfolder_name)
+    other_bilans = 0.0
+    for idx, row in enumerate(all_vals):
+        val = str(row[0]).strip()
+        if re.match(r'^=== \d{6} ===$', val) and val != current_marker:
+            if idx + 1 < len(all_vals):  # następny wiersz to nagłówek (D = bilans)
+                d_val = all_vals[idx + 1][3] if len(all_vals[idx + 1]) > 3 else ""
+                try:
+                    other_bilans += float(
+                        re.sub(r"[^\d\-.,]", "", str(d_val)).replace(",", "."))
+                except Exception:
+                    pass
+
+    stan_net = round(old_base + other_bilans + bilans_current, 2)
     ws.update("A1", [[stan_net]])
     ws.format("A1", {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
 
