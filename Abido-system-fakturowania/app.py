@@ -2778,14 +2778,6 @@ if btn_paruj:
                             })
                         st.dataframe(rows_e, use_container_width=True)
 
-                # Odswierz KP/KW po parowaniu
-                try:
-                    with st.spinner("Odświeżam KP / KW..."):
-                        sections_kpkw = read_all_sections(worksheet)
-                        refresh_kp_kw(client.open_by_key(SPREADSHEET_ID), name, sections_kpkw)
-                    st.caption("KP / KW zaktualizowane.")
-                except Exception as _e_kpkw:
-                    st.caption(f"KP/KW: błąd — {_e_kpkw}")
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
