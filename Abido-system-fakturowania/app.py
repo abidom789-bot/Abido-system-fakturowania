@@ -1373,6 +1373,7 @@ def sync_parowanie(worksheet, transactions):
             free_hits = [
                 i for i, tx in enumerate(transactions)
                 if i not in used_tx
+                and i not in bankomat_indices
                 and tx["kwota"] * direction > 0
                 and (_search_token(tx, tokens[-1])
                      or (len(tokens) > 1 and _search_token(tx, tokens[0])))
