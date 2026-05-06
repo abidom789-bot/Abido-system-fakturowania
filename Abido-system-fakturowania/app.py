@@ -1306,6 +1306,42 @@ def sync_parowanie(worksheet, transactions):
                 for i, sr in enumerate(sub_rows_list):
                     sections[sep].insert(row_idx + 1 + i, sr)
 
+    # Dodatkowe TX dla zamrozonych wierszy (status=2) pasujace po nazwisku/imieniu
+    # np. najemca placi fakture w dwoch przelewach — drugi przelew jako sub-wiersz
+    for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
+        by_row = {}   # {row_idx: [sub_rows]}
+        for row_idx, row in enumerate(sections[sep]):
+            if not (row[0] if row else ""):
+                continue   # sub-wiersz — pomijamy
+            if str(row[2]).strip() != "2":
+                continue   # tylko zamrozone
+            tokens = _extract_name_tokens(row[0])
+            if not tokens:
+                continue
+            direction = _DIRECTION[sep]
+            free_hits = [
+                i for i, tx in enumerate(transactions)
+                if i not in used_tx
+                and tx["kwota"] * direction > 0
+                and (_search_token(tx, tokens[-1])
+                     or (len(tokens) > 1 and _search_token(tx, tokens[0])))
+            ]
+            if free_hits:
+                sub_list = []
+                for tx_i in free_hits:
+                    tx = transactions[tx_i]
+                    klucz = assign_klucz_ksiegowy(sep, tx, row[1] if len(row) > 1 else "", row[0])
+                    sub_list.append(_build_sub_row(tx, klucz))
+                    used_tx.add(tx_i)
+                by_row[row_idx] = sub_list
+        # Wstaw od poczatku z przesuniecia offset
+        offset = 0
+        for orig_idx in sorted(by_row.keys()):
+            actual_idx = orig_idx + offset
+            for i, sr in enumerate(by_row[orig_idx]):
+                sections[sep].insert(actual_idx + 1 + i, sr)
+            offset += len(by_row[orig_idx])
+
     # Niesparowane transakcje z wyciagu → SEP_NIEZNANE (zawsze zastepowane)
     sections[SEP_NIEZNANE] = [
         _build_unmatched_row(transactions[i])
