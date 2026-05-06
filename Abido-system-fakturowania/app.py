@@ -1712,15 +1712,45 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         ws = spreadsheet.add_worksheet(title=_KP_KW_SHEET, rows=600, cols=10)
 
     kp_entries, kw_entries = _extract_rk_entries(sections)
-
     block, row_types = _build_kp_kw_block(subfolder_name, kp_entries, kw_entries)
 
-    # Snapshot arkusza potrzebny do wyszukania markera
+    # Snapshot arkusza (przed modyfikacjami — potrzebny do markera i starego stanu)
     all_vals = ws.get_all_values()
 
-    marker     = _KP_KW_MARKER.format(subfolder_name)
-    start_row  = None
-    end_row    = None
+    # ── Stary stan kasy (baza) ─────────────────────────────────────
+    # H1 przechowuje oryginalny stan z poprzedniego systemu.
+    # Przy pierwszym uruchomieniu: A1 zawiera ten stan — zapisujemy do H1.
+    def _parse_num(s):
+        try:
+            return float(re.sub(r"[^\d\-.,]", "", str(s)).replace(",", "."))
+        except Exception:
+            return 0.0
+
+    h1_raw = all_vals[0][7] if all_vals and len(all_vals[0]) > 7 else ""
+    if h1_raw:
+        old_base = _parse_num(h1_raw)
+    else:
+        a1_raw = all_vals[0][0] if all_vals and all_vals[0] else ""
+        old_base = _parse_num(a1_raw)
+        if old_base:
+            ws.update("H1", [[round(old_base, 2)]])  # zapisz raz na stałe
+
+    # ── Sumy ze wszystkich arkuszy MMYYYY ──────────────────────────
+    stan_kp = stan_kw = 0.0
+    for ws_obj in spreadsheet.worksheets():
+        if not re.match(r'^\d{6}$', ws_obj.title):
+            continue
+        try:
+            kp_e, kw_e = _extract_rk_entries(read_all_sections(ws_obj))
+            stan_kp += sum(e[2] for e in kp_e)
+            stan_kw += sum(e[2] for e in kw_e)
+        except Exception:
+            pass
+
+    # ── Wyszukaj marker i wstaw/zastąp blok ───────────────────────
+    marker    = _KP_KW_MARKER.format(subfolder_name)
+    start_row = None
+    end_row   = None
 
     for i, row in enumerate(all_vals):
         val = str(row[0]).strip() if row else ""
@@ -1731,6 +1761,7 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
             break
 
     if start_row is None:
+        # Nowy miesiąc — wsuń tuż pod wiersz 1 (stan kasy), stare dane schodzą w dół
         insert_at = 2 if all_vals and any(c for c in all_vals[0]) else 1
         ws.insert_rows(block, row=insert_at)
         start_row = insert_at
@@ -1773,6 +1804,10 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         ws.format(f"A{r}:C{r}", {"backgroundColor": _KPKW_DATA_KP})
         ws.format(f"E{r}:G{r}", {"backgroundColor": _KPKW_DATA_KW})
 
+    # ── Stan kasy całkowity — A1 ──────────────────────────────────
+    stan_net = round(old_base + stan_kp - stan_kw, 2)
+    ws.update("A1", [[stan_net]])
+    ws.format("A1", {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
 
 
 # ----------------------------------------------------------------
