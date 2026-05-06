@@ -1546,6 +1546,183 @@ def sync_parowanie(worksheet, transactions):
     )
 
 
+# ================================================================
+# KP i KW — zakładka raportu kasowego
+# ================================================================
+
+_KP_KW_SHEET  = "Kp i Kw"
+_KP_KW_MARKER = "=== {} ==="
+
+_MONTHS_PL = {
+    1: "STYCZEŃ", 2: "LUTY", 3: "MARZEC", 4: "KWIECIEŃ",
+    5: "MAJ", 6: "CZERWIEC", 7: "LIPIEC", 8: "SIERPIEŃ",
+    9: "WRZESIEŃ", 10: "PAŹDZIERNIK", 11: "LISTOPAD", 12: "GRUDZIEŃ",
+}
+
+_CAT_LABELS_KP = {0: "Przychody najemców", 1: "Kaucje wpłacone",
+                  2: "Bankomat / BLIK", 3: "Inne KP"}
+_CAT_LABELS_KW = {0: "Koszty gotówkowe", 1: "Zwroty kaucji",
+                  2: "Bankomat / BLIK", 3: "Inne KW"}
+
+
+def _month_label_pl(subfolder_name):
+    try:
+        m, y = int(subfolder_name[:2]), int(subfolder_name[2:])
+        return f"{_MONTHS_PL.get(m, '?')} {y}"
+    except Exception:
+        return subfolder_name
+
+
+def _kp_kw_opis(klucz, col_a):
+    col_a = col_a.strip()
+    if "prz_naj" in klucz and "_rk_kp" in klucz:
+        return f"{col_a} — wynajem pokoju" if col_a else "Wynajem pokoju"
+    if "roz_depo_part" in klucz and "_rk_kp" in klucz:
+        return f"Zapłata części kaucji — {col_a}" if col_a else "Zapłata części kaucji"
+    if "roz_depo_all" in klucz and "_rk_kp" in klucz:
+        return f"Zapłata kaucji — {col_a}" if col_a else "Zapłata kaucji"
+    if "roz_depo_part" in klucz and "_rk_kw" in klucz:
+        return f"Zwrot części kaucji — {col_a}" if col_a else "Zwrot części kaucji"
+    if "roz_depo_all" in klucz and "_rk_kw" in klucz:
+        return f"Zwrot kaucji — {col_a}" if col_a else "Zwrot kaucji"
+    if "bankomat" in klucz and "_rk_kp" in klucz:
+        return "Wpłata bankomat/BLIK"
+    if "bankomat" in klucz and "_rk_kw" in klucz:
+        return "Wypłata bankomat/BLIK"
+    return col_a if col_a else klucz
+
+
+def _kp_kw_cat(klucz):
+    if "prz_naj"  in klucz: return 0
+    if "roz_depo" in klucz: return 1
+    if "bankomat" in klucz: return 2
+    return 3
+
+
+def _extract_rk_entries(sections):
+    """Zwraca (kp_entries, kw_entries) — listy (klucz, col_a, kwota, data)."""
+    kp, kw = [], []
+    for sec_rows in sections.values():
+        for row in sec_rows:
+            klucz = str(row[6]).strip() if len(row) > 6 else ""
+            if "_rk_" not in klucz:
+                continue
+            col_a = str(row[0]).strip() if row else ""
+            def _pq(s):
+                try:
+                    return abs(float(re.sub(r"[^\d,.\-]", "", s).replace(",", ".")))
+                except Exception:
+                    return 0.0
+            kwota_b = _pq(str(row[1])) if len(row) > 1 and str(row[1]).strip() else 0.0
+            kwota_i = _pq(str(row[8])) if len(row) > 8 and str(row[8]).strip() else 0.0
+            kwota   = kwota_b if kwota_b else kwota_i
+            data    = str(row[9]).strip() if len(row) > 9 else ""
+            entry   = (klucz, col_a, kwota, data)
+            if   "_rk_kp" in klucz: kp.append(entry)
+            elif "_rk_kw" in klucz: kw.append(entry)
+    return kp, kw
+
+
+def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries):
+    """Buduje listę 7-kolumnowych wierszy dla bloku miesięcznego."""
+    kp_total = sum(e[2] for e in kp_entries)
+    kw_total = sum(e[2] for e in kw_entries)
+    balance  = kp_total - kw_total
+
+    def group(entries):
+        d = {}
+        for e in sorted(entries, key=lambda x: (_kp_kw_cat(x[0]), x[3])):
+            d.setdefault(_kp_kw_cat(e[0]), []).append(e)
+        return d
+
+    kp_by_cat = group(kp_entries)
+    kw_by_cat = group(kw_entries)
+
+    rows = []
+    rows.append([_KP_KW_MARKER.format(subfolder_name), "", "", "", "", "", ""])
+    rows.append([
+        _month_label_pl(subfolder_name),
+        f"KP: +{kp_total:,.2f} PLN", "",
+        "",
+        f"KW: -{kw_total:,.2f} PLN",
+        f"Bilans: {balance:+,.2f} PLN",
+        "",
+    ])
+
+    for cat in sorted(set(list(kp_by_cat) + list(kw_by_cat))):
+        kp_cat = kp_by_cat.get(cat, [])
+        kw_cat = kw_by_cat.get(cat, [])
+        rows.append([_CAT_LABELS_KP.get(cat, ""), "", "", "",
+                     _CAT_LABELS_KW.get(cat, ""), "", ""])
+        for i in range(max(len(kp_cat), len(kw_cat))):
+            kp_part = ["", "", ""]
+            kw_part = ["", "", ""]
+            if i < len(kp_cat):
+                k, a, q, d = kp_cat[i]
+                kp_part = [d, _kp_kw_opis(k, a), round(q, 2)]
+            if i < len(kw_cat):
+                k, a, q, d = kw_cat[i]
+                kw_part = [d, _kp_kw_opis(k, a), round(q, 2)]
+            rows.append(kp_part + [""] + kw_part)
+
+    rows.append(["", "", "", "", "", "", ""])
+    return rows
+
+
+def refresh_kp_kw(spreadsheet, subfolder_name, sections):
+    """Nadpisuje blok biezacego miesiaca w zakładce 'Kp i Kw'."""
+    try:
+        ws = spreadsheet.worksheet(_KP_KW_SHEET)
+    except gspread.exceptions.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(title=_KP_KW_SHEET, rows=600, cols=10)
+
+    kp_entries, kw_entries = _extract_rk_entries(sections)
+    block = _build_kp_kw_block(subfolder_name, kp_entries, kw_entries)
+
+    marker     = _KP_KW_MARKER.format(subfolder_name)
+    all_vals   = ws.get_all_values()
+    start_row  = None   # 1-based
+    end_row    = None   # 1-based, exclusive
+
+    for i, row in enumerate(all_vals):
+        val = str(row[0]).strip() if row else ""
+        if val == marker:
+            start_row = i + 1
+        elif start_row is not None and val.startswith("==="):
+            end_row = i + 1
+            break
+
+    if start_row is None:
+        # Nie ma jeszcze bloku — wstaw po wierszu 1 (stan kasy)
+        insert_at = 2 if all_vals and any(c for c in all_vals[0]) else 1
+        ws.insert_rows(block, row=insert_at)
+    else:
+        if end_row is None:
+            end_row = len(all_vals) + 1
+        ws.delete_rows(start_row, end_row - 1)
+        ws.insert_rows(block, row=start_row)
+
+    # Stan kasy = suma ze wszystkich arkuszy MMYYYY
+    stan_kp = stan_kw = 0.0
+    for ws_obj in spreadsheet.worksheets():
+        if not re.match(r'^\d{6}$', ws_obj.title):
+            continue
+        try:
+            kp_e, kw_e = _extract_rk_entries(read_all_sections(ws_obj))
+            stan_kp += sum(e[2] for e in kp_e)
+            stan_kw += sum(e[2] for e in kw_e)
+        except Exception:
+            pass
+
+    stan = stan_kp - stan_kw
+    ws.update("A1:G1", [[
+        "STAN KASY (auto):", "",
+        f"+{stan_kp:,.2f} PLN KP", "",
+        f"-{stan_kw:,.2f} PLN KW", "",
+        f"{stan:+,.2f} PLN",
+    ]])
+
+
 # ----------------------------------------------------------------
 # SEARCH — wyszukiwanie na Google Drive
 # ----------------------------------------------------------------
@@ -2304,6 +2481,10 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
                 "Status parowania",
                 use_container_width=True,
             )
+            btn_refresh_kpkw = st.button(
+                "Odśwież KP / KW",
+                use_container_width=True,
+            )
 
 # ----------------------------------------------------------------
 # AKCJA: Search Drive
@@ -2483,6 +2664,36 @@ if btn_paruj:
                                 "Tytuł": str(r[10])[:60] if len(r) > 10 else "",
                             })
                         st.dataframe(rows_e, use_container_width=True)
+
+                # Odswierz KP/KW po parowaniu
+                try:
+                    with st.spinner("Odświeżam KP / KW..."):
+                        sections_kpkw = read_all_sections(worksheet)
+                        refresh_kp_kw(client.open_by_key(SPREADSHEET_ID), name, sections_kpkw)
+                    st.caption("KP / KW zaktualizowane.")
+                except Exception as _e_kpkw:
+                    st.caption(f"KP/KW: błąd — {_e_kpkw}")
+        except Exception as e:
+            st.error(f"Wystapil blad: {e}")
+
+# ----------------------------------------------------------------
+# AKCJA: Odswierz KP / KW
+# ----------------------------------------------------------------
+if btn_refresh_kpkw:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds = get_credentials()
+            client = gspread.authorize(creds)
+            with st.spinner("Odświeżam KP / KW..."):
+                worksheet = get_or_create_worksheet(
+                    client.open_by_key(SPREADSHEET_ID), name
+                )
+                sections_kpkw = read_all_sections(worksheet)
+                refresh_kp_kw(client.open_by_key(SPREADSHEET_ID), name, sections_kpkw)
+            st.success(f"KP / KW zaktualizowane dla {name}.")
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
