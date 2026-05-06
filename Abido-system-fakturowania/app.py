@@ -1632,13 +1632,15 @@ _KPKW_STAN_BG   = {"red": 1.0,  "green": 0.95, "blue": 0.77}  # złoty — stan 
 _WHITE          = {"red": 1.0,  "green": 1.0,  "blue": 1.0}
 
 
-def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries, total_kp=0.0, total_kw=0.0):
+def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries):
     """Buduje (rows, row_types) dla bloku miesięcznego.
     row_types: 'marker' | 'header' | 'cat_header' | 'data' | 'separator'
-    KP kwoty: dodatnie. KW kwoty: ujemne (kolumna G).
+    KP kwoty: dodatnie (kolumna C). KW kwoty: ujemne (kolumna G).
+    Nagłówek: C = suma KP, D = bilans (KP+KW), G = suma KW (ujemna).
     """
     kp_total = sum(e[2] for e in kp_entries)
     kw_total = sum(e[2] for e in kw_entries)
+    bilans   = kp_total - kw_total
 
     def group(entries):
         d = {}
@@ -1656,15 +1658,15 @@ def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries, total_kp=0.0, tot
         types.append(rtype)
 
     add([_KP_KW_MARKER.format(subfolder_name), "", "", "", "", "", ""], "marker")
-    # Nagłówek: 4 liczby — KP mies., KW mies. (ujemna), KP total, KW total (ujemna)
+    # C = suma KP, D = bilans, G = suma KW (ujemna)
     add([
         _month_label_pl(subfolder_name),
+        "",
         round(kp_total, 2),
+        round(bilans, 2),
+        "",
+        "",
         round(-kw_total, 2),
-        "",
-        round(total_kp, 2),
-        round(-total_kw, 2),
-        "",
     ], "header")
 
     for cat in sorted(set(list(kp_by_cat) + list(kw_by_cat))):
@@ -1711,35 +1713,10 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
 
     kp_entries, kw_entries = _extract_rk_entries(sections)
 
-    # Snapshot do wyszukania markera i starego stanu kasy
+    block, row_types = _build_kp_kw_block(subfolder_name, kp_entries, kw_entries)
+
+    # Snapshot arkusza potrzebny do wyszukania markera
     all_vals = ws.get_all_values()
-
-    # Stary stan kasy ze starego systemu — szukaj wiersza z "starego systemu"
-    old_balance = 0.0
-    for i, row in enumerate(all_vals):
-        if any("starego systemu" in str(c).lower() for c in row):
-            if i + 1 < len(all_vals):
-                b = all_vals[i + 1][1] if len(all_vals[i + 1]) > 1 else ""
-                try:
-                    old_balance = float(re.sub(r"[^\d\-.,]", "", str(b)).replace(",", "."))
-                except Exception:
-                    pass
-            break
-
-    # Sumy ze wszystkich arkuszy MMYYYY
-    stan_kp = stan_kw = 0.0
-    for ws_obj in spreadsheet.worksheets():
-        if not re.match(r'^\d{6}$', ws_obj.title):
-            continue
-        try:
-            kp_e, kw_e = _extract_rk_entries(read_all_sections(ws_obj))
-            stan_kp += sum(e[2] for e in kp_e)
-            stan_kw += sum(e[2] for e in kw_e)
-        except Exception:
-            pass
-
-    block, row_types = _build_kp_kw_block(
-        subfolder_name, kp_entries, kw_entries, stan_kp, stan_kw)
 
     marker     = _KP_KW_MARKER.format(subfolder_name)
     start_row  = None
@@ -1796,22 +1773,6 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         ws.format(f"A{r}:C{r}", {"backgroundColor": _KPKW_DATA_KP})
         ws.format(f"E{r}:G{r}", {"backgroundColor": _KPKW_DATA_KW})
 
-    # ── Stan kasy — wiersz 1 ─────────────────────────────────────
-    # stan_kp / stan_kw obliczone wcześniej; old_balance ze starego systemu
-    stan_net = stan_kp - stan_kw + old_balance
-    ws.update("A1:G1", [[
-        "STAN KASY (auto):",
-        round(stan_net, 2),
-        "",
-        "",
-        "",
-        "",
-        "",
-    ]])
-    ws.format("A1:G1", {
-        "backgroundColor": _KPKW_STAN_BG,
-        "textFormat": {"bold": True},
-    })
 
 
 # ----------------------------------------------------------------
