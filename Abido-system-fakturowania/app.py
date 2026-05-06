@@ -732,6 +732,7 @@ _ORANGE_MARKER = "_orange"
 _ORANGE_BG     = {"red": 1.0,  "green": 0.88, "blue": 0.70}
 _KP_BG         = {"red": 0.82, "green": 0.96, "blue": 0.77}   # kasa przyjela (gotowka wplyn)
 _KW_BG         = {"red": 0.97, "green": 0.82, "blue": 0.82}   # kasa wyplacila (gotowka wydat)
+_MULTI_BG      = {"red": 0.91, "green": 0.88, "blue": 0.98}   # multi-parowanie (1 faktura → kilka TX)
 
 SEP_COLORS = {
     SEP_KOSZTOWE: {"red": 0.90, "green": 0.22, "blue": 0.22},  # czerwony
@@ -748,17 +749,33 @@ def rebuild_sheet(worksheet, sections):
     Pomija puste sekcje. Koloruje separatory i wiersze kp/kw.
     """
     all_new = [HEADER_ROW]
-    sep_row_nums = {}   # sep -> numer wiersza (1-based)
-    kp_rows = []        # wiersze z _rk_kp w kluczu (col G)
-    kw_rows = []        # wiersze z _rk_kw w kluczu (col G)
+    sep_row_nums  = {}   # sep -> numer wiersza (1-based)
+    kp_rows       = []   # wiersze z _rk_kp w kluczu (col G)
+    kw_rows       = []   # wiersze z _rk_kw w kluczu (col G)
+    multi_rows    = []   # wiersze nalezace do multi-parowania (1 faktura → kilka TX)
+    last_main_num = None # numer wiersza ostatniego "glownego" wiersza (col A niepuste)
     for sep in SECTION_ORDER:
         if sections[sep]:
             all_new.append([sep, "", "", ""])
             sep_row_nums[sep] = len(all_new)
+            last_main_num = None
             for row in sections[sep]:
                 all_new.append(row)
                 row_num = len(all_new)
                 klucz = str(row[6]).strip() if len(row) > 6 else ""
+                col_a = str(row[0]).strip() if row else ""
+                col_c = str(row[2]).strip() if len(row) > 2 else ""
+                col_h = str(row[7]).strip() if len(row) > 7 else ""
+                if col_a:
+                    last_main_num = row_num   # zapamietaj glowny wiersz
+                elif not col_a and col_c == "2" and col_h:
+                    # Sub-wiersz (puste A, status=2, jest kontrahent) = multi-parowanie
+                    if last_main_num is not None:
+                        if last_main_num not in multi_rows:
+                            multi_rows.append(last_main_num)
+                    multi_rows.append(row_num)
+                else:
+                    last_main_num = None
                 if "_rk_kp" in klucz:
                     kp_rows.append(row_num)
                 elif "_rk_kw" in klucz:
@@ -780,6 +797,8 @@ def rebuild_sheet(worksheet, sections):
                 "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
             },
         })
+    for row_num in multi_rows:
+        worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _MULTI_BG})
     for row_num in kp_rows:
         worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _KP_BG})
     for row_num in kw_rows:
@@ -1205,9 +1224,11 @@ def _build_unmatched_row(tx):
     """Buduje wiersz dla niesparowanej transakcji z wyciagu (A i B puste)."""
     kontrahent_low = str(tx.get("kontrahent", "")).lower()
     combined       = kontrahent_low + " " + str(tx.get("tytul", "")).lower()
+    tytul_low = str(tx.get("tytul", "")).lower()
     if "bankomat" in kontrahent_low:
         klucz = "roz_bankomat_rk_kw" if tx["kwota"] > 0 else "roz_bankomat_rk_kp"
-    elif "urz" in combined and "skarbowy" in combined:
+    elif ("urz" in combined and "skarbowy" in combined
+          or re.search(r'(?<![a-z])(?:cit|pit)(?![a-z])', tytul_low)):
         klucz = "kos_pod_pr_out"
     elif "zakład ubezpieczeń" in combined or "zus" in combined:
         klucz = "kos_zus_pr_out"
