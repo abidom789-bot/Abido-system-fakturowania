@@ -1024,7 +1024,7 @@ def _frozen_tx_pre_used(sections, transactions):
     Sygnatura: (kwota, data_ks, nr_rachunku, tytul[:20]) — wystarczajaco unikalna.
     """
     frozen_sigs = set()
-    for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
+    for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC, SEP_NIEZNANE]:
         for row in sections[sep]:
             if str(row[2]).strip() != "2":   # tylko status=2 blokuje TX
                 continue
@@ -1365,11 +1365,23 @@ def sync_parowanie(worksheet, transactions):
             offset += len(by_row[orig_idx])
 
     # Zachowaj zamrozone wiersze (status=2) z istniejacego SEP_NIEZNANE —
-    # moga to byc recznie stworzone wpisy lub TX z poprzednich miesiecy
-    frozen_nieznane = [
-        r for r in sections.get(SEP_NIEZNANE, [])
-        if len(r) > 2 and str(r[2]).strip() == "2"
-    ]
+    # moga to byc recznie stworzone wpisy lub TX z poprzednich miesiecy.
+    # Deduplikuj po sygnaturze TX (jesli ten sam TX wpadl dwa razy przez poprzedni bug).
+    _seen_frozen_sigs = set()
+    frozen_nieznane = []
+    for r in sections.get(SEP_NIEZNANE, []):
+        if len(r) <= 2 or str(r[2]).strip() != "2":
+            continue
+        if len(r) > 9 and str(r[9]).strip():   # wiersz z danymi bankowymi
+            try:
+                _kw = round(float(re.sub(r"[^\d,.\-]", "", str(r[8])).replace(",", ".")), 2)
+            except (ValueError, TypeError):
+                _kw = 0.0
+            _sig = (_kw, str(r[9]).strip(), str(r[14]).strip() if len(r) > 14 else "")
+            if _sig in _seen_frozen_sigs:
+                continue   # duplikat — pomin
+            _seen_frozen_sigs.add(_sig)
+        frozen_nieznane.append(r)
 
     # Niesparowane transakcje z wyciagu → SEP_NIEZNANE (zastepowane, ale zamrozone zostaja)
     unmatched_rows = [
