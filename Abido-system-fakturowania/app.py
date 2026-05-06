@@ -712,11 +712,16 @@ def read_all_sections(worksheet):
         if matched:
             current = matched
         elif current:
-            # SEP_NIEZNANE moze miec puste kol A (brak faktury) — wlaczamy jesli cokolwiek wypelnione
             if current == SEP_NIEZNANE:
+                # SEP_NIEZNANE: brak faktury w A — wlaczamy jesli cokolwiek wypelnione
                 if any(c for c in row):
                     sections[current].append(row)
             elif val:
+                # Normalny wiersz — klucz w kol A
+                sections[current].append(row)
+            elif len(row) > 7 and row[7]:
+                # Dodatkowy wiersz parowania: puste A i B, ale jest kontrahent w kol H
+                # (np. kilka transakcji bankowych do jednej faktury)
                 sections[current].append(row)
     return sections
 
