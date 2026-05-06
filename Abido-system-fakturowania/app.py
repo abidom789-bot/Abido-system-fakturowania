@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import time
 import calendar
 import unicodedata
 import xlrd
@@ -11,6 +12,22 @@ from datetime import date
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+
+# ----------------------------------------------------------------
+# HELPERS — retry dla Google Sheets API (limit 60 write req/min)
+# ----------------------------------------------------------------
+def _api(fn, *args, **kwargs):
+    """Wywołuje funkcję gspread z exponential backoff przy błędzie 429."""
+    for attempt in range(7):
+        try:
+            return fn(*args, **kwargs)
+        except gspread.exceptions.APIError as e:
+            if "429" in str(e) and attempt < 6:
+                wait = min(2 ** attempt, 64)   # 1, 2, 4, 8, 16, 32, 64 sek
+                time.sleep(wait)
+            else:
+                raise
+
 
 # ----------------------------------------------------------------
 # KONFIGURACJA
@@ -780,17 +797,17 @@ def rebuild_sheet(worksheet, sections):
                     kp_rows.append(row_num)
                 elif "_rk_kw" in klucz:
                     kw_rows.append(row_num)
-    worksheet.clear()
+    _api(worksheet.clear)
     # Reset formatowania calego arkusza (clear() nie czysci kolorow)
-    worksheet.format("A1:Q500", {
+    _api(worksheet.format, "A1:Q500", {
         "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
         "textFormat": {"bold": False},
         "horizontalAlignment": "CENTER",
     })
     if all_new:
-        worksheet.update("A1", all_new, value_input_option="USER_ENTERED")
+        _api(worksheet.update, "A1", all_new, value_input_option="USER_ENTERED")
     for sep, row_num in sep_row_nums.items():
-        worksheet.format(f"A{row_num}:P{row_num}", {
+        _api(worksheet.format, f"A{row_num}:P{row_num}", {
             "backgroundColor": SEP_COLORS[sep],
             "textFormat": {
                 "bold": True,
@@ -798,11 +815,11 @@ def rebuild_sheet(worksheet, sections):
             },
         })
     for row_num in multi_rows:
-        worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _MULTI_BG})
+        _api(worksheet.format, f"A{row_num}:Q{row_num}", {"backgroundColor": _MULTI_BG})
     for row_num in kp_rows:
-        worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _KP_BG})
+        _api(worksheet.format, f"A{row_num}:Q{row_num}", {"backgroundColor": _KP_BG})
     for row_num in kw_rows:
-        worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _KW_BG})
+        _api(worksheet.format, f"A{row_num}:Q{row_num}", {"backgroundColor": _KW_BG})
 
 
 def apply_sync_logic(existing_rows, new_data, has_address=False, default_status="0"):
@@ -1529,11 +1546,11 @@ def sync_parowanie(worksheet, transactions):
             orange_rows.append(row_num)
             clear_updates.append({"range": f"Q{row_num}", "values": [[""]]})
     for row_num in purple_rows:
-        worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _PURPLE_BG})
+        _api(worksheet.format, f"A{row_num}:Q{row_num}", {"backgroundColor": _PURPLE_BG})
     for row_num in orange_rows:
-        worksheet.format(f"A{row_num}:Q{row_num}", {"backgroundColor": _ORANGE_BG})
+        _api(worksheet.format, f"A{row_num}:Q{row_num}", {"backgroundColor": _ORANGE_BG})
     if clear_updates:
-        worksheet.batch_update(clear_updates)
+        _api(worksheet.batch_update, clear_updates)
 
     tx_total = len(transactions)
     tx_sum   = sum(tx["kwota"] for tx in transactions)
@@ -1773,15 +1790,15 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         # Obecna A1 = poprzedni stan kasy (stary system lub poprzedni miesiąc)
         old_base  = _parse_num(all_vals[0][0] if all_vals and all_vals[0] else "")
         insert_at = 2 if all_vals and any(c for c in all_vals[0]) else 1
-        ws.insert_rows(block, row=insert_at)
+        _api(ws.insert_rows, block, row=insert_at)
         start_row = insert_at
 
         # Wstaw wiersz zamknięcia (poprzedni stan kasy) tuż po separatorze bloku
         if old_base:
             closing_num = insert_at + len(block)
-            ws.insert_rows([[round(old_base, 2), "", "", "", "", "", ""]], row=closing_num)
-            ws.format(f"A{closing_num}:G{closing_num}",
-                      {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
+            _api(ws.insert_rows, [[round(old_base, 2), "", "", "", "", "", ""]], row=closing_num)
+            _api(ws.format, f"A{closing_num}:G{closing_num}",
+                 {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
     else:
         # ── Odświeżenie istniejącego bloku ───────────────────────
         # Stary stan kasy = wiersz zamknięcia poniżej separatora
@@ -1800,13 +1817,13 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
             if end_row is None:
                 end_row = start_row + len(block)
 
-        ws.delete_rows(start_row, end_row - 1)
-        ws.insert_rows(block, row=start_row)
+        _api(ws.delete_rows, start_row, end_row - 1)
+        _api(ws.insert_rows, block, row=start_row)
 
     # ── A1 = stan kasy bieżącego miesiąca ────────────────────────
     stan_net = round(old_base + bilans_current, 2)
-    ws.update("A1:G1", [[stan_net, "", "", "", "", "", ""]])
-    ws.format("A1", {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
+    _api(ws.update, "A1:G1", [[stan_net, "", "", "", "", "", ""]])
+    _api(ws.format, "A1", {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
 
     # ── Formatowanie bloku ────────────────────────────────────────
     type_rows = {"header": [], "cat_header": [], "data": [], "marker": [], "separator": []}
@@ -1814,26 +1831,26 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         type_rows[rtype].append(start_row + i)
 
     block_end = start_row + len(block) - 1
-    ws.format(f"A{start_row}:G{block_end}", {"backgroundColor": _WHITE})
+    _api(ws.format, f"A{start_row}:G{block_end}", {"backgroundColor": _WHITE})
 
     for r in type_rows["marker"]:
-        ws.format(f"A{r}:G{r}", {"backgroundColor": {"red": 0.93, "green": 0.93, "blue": 0.93}})
+        _api(ws.format, f"A{r}:G{r}", {"backgroundColor": {"red": 0.93, "green": 0.93, "blue": 0.93}})
 
     for r in type_rows["header"]:
-        ws.format(f"A{r}:G{r}", {
+        _api(ws.format, f"A{r}:G{r}", {
             "backgroundColor": _KPKW_HEADER_BG,
             "textFormat": {"bold": True, "foregroundColor": _WHITE},
         })
 
     for r in type_rows["cat_header"]:
-        ws.format(f"A{r}:C{r}", {"backgroundColor": _KPKW_CAT_KP_BG,
-                                  "textFormat": {"bold": True}})
-        ws.format(f"E{r}:G{r}", {"backgroundColor": _KPKW_CAT_KW_BG,
-                                  "textFormat": {"bold": True}})
+        _api(ws.format, f"A{r}:C{r}", {"backgroundColor": _KPKW_CAT_KP_BG,
+                                        "textFormat": {"bold": True}})
+        _api(ws.format, f"E{r}:G{r}", {"backgroundColor": _KPKW_CAT_KW_BG,
+                                        "textFormat": {"bold": True}})
 
     for r in type_rows["data"]:
-        ws.format(f"A{r}:C{r}", {"backgroundColor": _KPKW_DATA_KP})
-        ws.format(f"E{r}:G{r}", {"backgroundColor": _KPKW_DATA_KW})
+        _api(ws.format, f"A{r}:C{r}", {"backgroundColor": _KPKW_DATA_KP})
+        _api(ws.format, f"E{r}:G{r}", {"backgroundColor": _KPKW_DATA_KW})
 
 
 # ----------------------------------------------------------------
