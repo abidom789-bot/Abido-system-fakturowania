@@ -1203,7 +1203,13 @@ def _build_sub_row(tx, klucz):
 
 def _build_unmatched_row(tx):
     """Buduje wiersz dla niesparowanej transakcji z wyciagu (A i B puste)."""
-    klucz = "nieznany_out" if tx["kwota"] < 0 else "nieznany_in"
+    rodzaj_low = str(tx.get("rodzaj", "")).lower()
+    tytul_low  = str(tx.get("tytul", "")).lower()
+    if "blik" in rodzaj_low or "blik" in tytul_low:
+        # Platnosci Blik: wplata (kwota > 0) lub wyplata (kwota < 0)
+        klucz = "roz_bankomat_rp_kw" if tx["kwota"] > 0 else "roz_bankomat_rk_kp"
+    else:
+        klucz = "nieznany_out" if tx["kwota"] < 0 else "nieznany_in"
     return [
         "", "", "", "", "", "",   # A=nazwa, B=kwota, C=status, D=raport_kasowy, E=adres, F=data_umowy
         klucz,
@@ -1358,8 +1364,15 @@ def sync_parowanie(worksheet, transactions):
                 sections[sep].insert(actual_idx + 1 + i, sr)
             offset += len(by_row[orig_idx])
 
-    # Niesparowane transakcje z wyciagu → SEP_NIEZNANE (zawsze zastepowane)
-    sections[SEP_NIEZNANE] = [
+    # Zachowaj zamrozone wiersze (status=2) z istniejacego SEP_NIEZNANE —
+    # moga to byc recznie stworzone wpisy lub TX z poprzednich miesiecy
+    frozen_nieznane = [
+        r for r in sections.get(SEP_NIEZNANE, [])
+        if len(r) > 2 and str(r[2]).strip() == "2"
+    ]
+
+    # Niesparowane transakcje z wyciagu → SEP_NIEZNANE (zastepowane, ale zamrozone zostaja)
+    sections[SEP_NIEZNANE] = frozen_nieznane + [
         _build_unmatched_row(transactions[i])
         for i in range(len(transactions))
         if i not in used_tx
