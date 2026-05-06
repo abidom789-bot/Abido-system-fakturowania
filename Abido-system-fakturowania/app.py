@@ -2303,17 +2303,22 @@ if btn_paruj:
                 if pomaranczowe:
                     parts.append(f"🟠 Pomarańczowe (brak pary): {pomaranczowe}")
                 parts.append(f"Niesparowane z wyciągu: {niesparowane}")
-                parts.append(f"Operacji w pliku: {tx_total} | Suma: {tx_sum:,.2f} PLN")
-                ok = (tx_total == sheet_tx_count and abs(tx_sum - sheet_tx_sum) < 0.02)
-                if ok:
-                    parts.append(f"✅ Weryfikacja OK (arkusz: {sheet_tx_count} wierszy, {sheet_tx_sum:,.2f} PLN)")
-                    st.success("Gotowe! " + " | ".join(parts))
-                else:
-                    st.success("Gotowe! " + " | ".join(parts))
-                    st.warning(
-                        f"⚠️ Niezgodność! Plik: {tx_total} operacji / {tx_sum:,.2f} PLN — "
-                        f"Arkusz: {sheet_tx_count} wierszy / {sheet_tx_sum:,.2f} PLN"
-                    )
+                st.success("Gotowe! " + " | ".join(parts))
+
+                # Dwa osobne sprawdzenia weryfikacji
+                ok_count = (tx_total == sheet_tx_count)
+                ok_sum   = (abs(tx_sum - sheet_tx_sum) < 0.02)
+                count_icon = "✅" if ok_count else "⚠️"
+                sum_icon   = "✅" if ok_sum   else "⚠️"
+                st.info(
+                    f"{count_icon} Liczba pozycji (wg wyciag_Kontrahent): "
+                    f"Plik {tx_total} / Arkusz {sheet_tx_count}"
+                    f"{'  ✓' if ok_count else f'  ← RÓŻNICA: {sheet_tx_count - tx_total:+d}'}"
+                    f"   |   "
+                    f"{sum_icon} Suma kwot (wg wyciag_Kwota): "
+                    f"Plik {tx_sum:,.2f} PLN / Arkusz {sheet_tx_sum:,.2f} PLN"
+                    f"{'  ✓' if ok_sum else f'  ← RÓŻNICA: {sheet_tx_sum - tx_sum:+.2f} PLN'}"
+                )
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
