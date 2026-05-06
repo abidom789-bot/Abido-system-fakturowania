@@ -1253,6 +1253,15 @@ def sync_parowanie(worksheet, transactions):
 
     pre_used = _frozen_tx_pre_used(sections, transactions)
 
+    # Bankomat/Blik — wyklucz z parowania: nigdy nie pasuja do faktur po nazwie
+    blik_indices = {
+        i for i, tx in enumerate(transactions)
+        if "blik"     in str(tx.get("rodzaj",     "")).lower()
+        or "blik"     in str(tx.get("tytul",      "")).lower()
+        or "bankomat" in str(tx.get("kontrahent", "")).lower()
+    }
+    pre_used = pre_used | blik_indices
+
     # Dla statusu=9: znajdz stary TX i zablokuj ponowne parowanie z nim
     def _tx_sig(tx):
         return (round(tx["kwota"], 2), str(tx["data_ks"]).strip(),
@@ -1279,6 +1288,8 @@ def sync_parowanie(worksheet, transactions):
 
     flat = [(c[0], c[3], c[4], c[5]) for c in candidates]
     matched, name_only, extras, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked)
+    # Blik/bankomat musi trafic do SEP_NIEZNANE — usun z used_tx zeby nie "znikly"
+    used_tx -= blik_indices
 
     unmatched_count = 0
 
