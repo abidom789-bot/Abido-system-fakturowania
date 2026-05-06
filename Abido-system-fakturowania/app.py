@@ -1632,11 +1632,12 @@ _KPKW_STAN_BG   = {"red": 1.0,  "green": 0.95, "blue": 0.77}  # złoty — stan 
 _WHITE          = {"red": 1.0,  "green": 1.0,  "blue": 1.0}
 
 
-def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries):
+def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries, stan_kasy=None):
     """Buduje (rows, row_types) dla bloku miesięcznego.
-    row_types: 'marker' | 'header' | 'cat_header' | 'data' | 'separator'
+    row_types: 'marker' | 'header' | 'cat_header' | 'data' | 'stan' | 'separator'
     KP kwoty: dodatnie (kolumna C). KW kwoty: ujemne (kolumna G).
     Nagłówek: C = suma KP, D = bilans (KP+KW), G = suma KW (ujemna).
+    stan_kasy: wartość stanu kasy na koniec tego miesiąca (wpisywana na końcu bloku).
     """
     kp_total = sum(e[2] for e in kp_entries)
     kw_total = sum(e[2] for e in kw_entries)
@@ -1685,6 +1686,8 @@ def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries):
                 kw_part = [d, _kp_kw_opis(k, a), round(-q, 2)]  # KW ujemne
             add(kp_part + [""] + kw_part, "data")
 
+    if stan_kasy is not None:
+        add(["Stan kasy:", "", round(stan_kasy, 2), "", "", "", ""], "stan")
     add(["", "", "", "", "", "", ""], "separator")
     return rows, types
 
@@ -1712,7 +1715,6 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         ws = spreadsheet.add_worksheet(title=_KP_KW_SHEET, rows=600, cols=10)
 
     kp_entries, kw_entries = _extract_rk_entries(sections)
-    block, row_types = _build_kp_kw_block(subfolder_name, kp_entries, kw_entries)
 
     # Snapshot arkusza (przed modyfikacjami — potrzebny do markera i starego stanu)
     all_vals = ws.get_all_values()
@@ -1735,8 +1737,27 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         if old_base:
             ws.update("H1", [[round(old_base, 2)]])  # zapisz raz na stałe
 
-    # Bilans bieżącego miesiąca z wczytanych wpisów
+    # Bilans bieżącego miesiąca
     bilans_current = sum(e[2] for e in kp_entries) - sum(e[2] for e in kw_entries)
+
+    # Stan kasy na koniec tego miesiąca (H1 + bilansy innych bloków + bilans bieżący)
+    other_bilans = 0.0
+    for idx, row in enumerate(all_vals):
+        val = str(row[0]).strip()
+        if re.match(r'^=== \d{6} ===$', val) and val != marker:
+            if idx + 1 < len(all_vals):
+                d_val = all_vals[idx + 1][3] if len(all_vals[idx + 1]) > 3 else ""
+                try:
+                    other_bilans += float(
+                        re.sub(r"[^\d\-.,]", "", str(d_val)).replace(",", "."))
+                except Exception:
+                    pass
+
+    stan_net = round(old_base + other_bilans + bilans_current, 2)
+
+    # Blok z wbudowanym stanem kasy na końcu
+    block, row_types = _build_kp_kw_block(
+        subfolder_name, kp_entries, kw_entries, stan_kasy=stan_net)
 
     # ── Wyszukaj marker i wstaw/zastąp blok ───────────────────────
     marker    = _KP_KW_MARKER.format(subfolder_name)
@@ -1770,7 +1791,7 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
 
     # ── Formatowanie bloku ────────────────────────────────────────
     # Zbierz numery wierszy według typu
-    type_rows = {"header": [], "cat_header": [], "data": [], "marker": [], "separator": []}
+    type_rows = {"header": [], "cat_header": [], "data": [], "marker": [], "separator": [], "stan": []}
     for i, rtype in enumerate(row_types):
         type_rows[rtype].append(start_row + i)
 
@@ -1801,24 +1822,13 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         ws.format(f"A{r}:C{r}", {"backgroundColor": _KPKW_DATA_KP})
         ws.format(f"E{r}:G{r}", {"backgroundColor": _KPKW_DATA_KW})
 
-    # ── Stan kasy całkowity — A1 ──────────────────────────────────
-    # Sumuj bilansy pozostałych miesięcy z istniejących bloków w Kp i Kw
-    # (z all_vals przed wstawieniem — bieżący miesiąc pomijamy)
-    current_marker = _KP_KW_MARKER.format(subfolder_name)
-    other_bilans = 0.0
-    for idx, row in enumerate(all_vals):
-        val = str(row[0]).strip()
-        if re.match(r'^=== \d{6} ===$', val) and val != current_marker:
-            if idx + 1 < len(all_vals):  # następny wiersz to nagłówek (D = bilans)
-                d_val = all_vals[idx + 1][3] if len(all_vals[idx + 1]) > 3 else ""
-                try:
-                    other_bilans += float(
-                        re.sub(r"[^\d\-.,]", "", str(d_val)).replace(",", "."))
-                except Exception:
-                    pass
+    # Wiersz stanu kasy na końcu bloku: złoty
+    for r in type_rows["stan"]:
+        ws.format(f"A{r}:G{r}", {"backgroundColor": _KPKW_STAN_BG,
+                                  "textFormat": {"bold": True}})
 
-    stan_net = round(old_base + other_bilans + bilans_current, 2)
-    ws.update("A1", [[stan_net]])
+    # ── Stan kasy — A1 (wyczyść cały wiersz 1, zapisz tylko A1) ──
+    ws.update("A1:G1", [[stan_net, "", "", "", "", "", ""]])
     ws.format("A1", {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
 
 
