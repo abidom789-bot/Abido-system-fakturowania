@@ -775,7 +775,7 @@ def apply_sync_logic(existing_rows, new_data, has_address=False, default_status=
     verified = {
         row[0]: row
         for row in existing_rows
-        if len(row) > 2 and str(row[2]).strip() in ("1", "2")
+        if len(row) > 2 and str(row[2]).strip() in ("1", "2", "9")
     }
     new_keys = {item["key"] for item in new_data}
     result = []
@@ -1215,6 +1215,22 @@ def sync_parowanie(worksheet, transactions):
         if i not in used_tx
     ]
 
+    # Weryfikacja: policz i zsumuj wiersze z danymi wyciagu (col H niepusta)
+    # Obejmuje: sparowane (w sekcjach) + niesparowane (SEP_NIEZNANE) + zamrozone (status=2)
+    sheet_tx_count = 0
+    sheet_tx_sum   = 0.0
+    for sec_rows in sections.values():
+        for r in sec_rows:
+            if len(r) > 7 and str(r[7]).strip():   # col H = wyciag_Kontrahent
+                sheet_tx_count += 1
+                if len(r) > 8 and str(r[8]).strip():
+                    try:
+                        sheet_tx_sum += float(
+                            re.sub(r"[^\d,.\-]", "", str(r[8])).replace(",", ".")
+                        )
+                    except (ValueError, TypeError):
+                        pass
+
     rebuild_sheet(worksheet, sections)
 
     # Kolorowanie wierszy po markerach w kolumnie Q
@@ -1240,7 +1256,14 @@ def sync_parowanie(worksheet, transactions):
     if clear_updates:
         worksheet.batch_update(clear_updates)
 
-    return len(matched), len(sections[SEP_NIEZNANE]), len(purple_rows), unmatched_count
+    tx_total = len(transactions)
+    tx_sum   = sum(tx["kwota"] for tx in transactions)
+    return (
+        len(matched), len(sections[SEP_NIEZNANE]),
+        len(purple_rows), unmatched_count,
+        tx_total, round(tx_sum, 2),
+        sheet_tx_count, round(sheet_tx_sum, 2),
+    )
 
 
 # ----------------------------------------------------------------
@@ -2121,15 +2144,26 @@ if btn_paruj:
                     worksheet = get_or_create_worksheet(
                         client.open_by_key(SPREADSHEET_ID), name
                     )
-                    sparowane, niesparowane, fioletowe, pomaranczowe = sync_parowanie(worksheet, transactions)
+                    (sparowane, niesparowane, fioletowe, pomaranczowe,
+                     tx_total, tx_sum, sheet_tx_count, sheet_tx_sum) = sync_parowanie(worksheet, transactions)
 
                 parts = [f"Sparowano: {sparowane}"]
                 if fioletowe:
-                    parts.append(f"Fioletowe (niezgodna kwota): {fioletowe}")
+                    parts.append(f"🟣 Fioletowe (niezgodna kwota): {fioletowe}")
                 if pomaranczowe:
-                    parts.append(f"Pomarańczowe (brak pary): {pomaranczowe}")
+                    parts.append(f"🟠 Pomarańczowe (brak pary): {pomaranczowe}")
                 parts.append(f"Niesparowane z wyciągu: {niesparowane}")
-                st.success("Gotowe! " + " | ".join(parts))
+                parts.append(f"Operacji w pliku: {tx_total} | Suma: {tx_sum:,.2f} PLN")
+                ok = (tx_total == sheet_tx_count and abs(tx_sum - sheet_tx_sum) < 0.02)
+                if ok:
+                    parts.append(f"✅ Weryfikacja OK (arkusz: {sheet_tx_count} wierszy, {sheet_tx_sum:,.2f} PLN)")
+                    st.success("Gotowe! " + " | ".join(parts))
+                else:
+                    st.success("Gotowe! " + " | ".join(parts))
+                    st.warning(
+                        f"⚠️ Niezgodność! Plik: {tx_total} operacji / {tx_sum:,.2f} PLN — "
+                        f"Arkusz: {sheet_tx_count} wierszy / {sheet_tx_sum:,.2f} PLN"
+                    )
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
