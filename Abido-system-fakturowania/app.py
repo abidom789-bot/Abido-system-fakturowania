@@ -1737,6 +1737,8 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         if old_base:
             ws.update("H1", [[round(old_base, 2)]])  # zapisz raz na stałe
 
+    marker = _KP_KW_MARKER.format(subfolder_name)
+
     # Bilans bieżącego miesiąca
     bilans_current = sum(e[2] for e in kp_entries) - sum(e[2] for e in kw_entries)
 
@@ -1760,7 +1762,6 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         subfolder_name, kp_entries, kw_entries, stan_kasy=stan_net)
 
     # ── Wyszukaj marker i wstaw/zastąp blok ───────────────────────
-    marker    = _KP_KW_MARKER.format(subfolder_name)
     start_row = None
     end_row   = None
 
