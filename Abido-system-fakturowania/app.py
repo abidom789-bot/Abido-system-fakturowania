@@ -775,11 +775,18 @@ def apply_sync_logic(existing_rows, new_data, has_address=False, default_status=
     """
     Laczy istniejace zweryfikowane wiersze (C=1) z nowymi danymi.
     Wiersze z C=1 sa zachowane nawet jesli plik zostal usuniety z Drive.
+    Sub-wiersze (puste A, dane wyciagu w H) sa zawsze zachowywane razem z rodzicem.
     Zwraca (nowe_wiersze, skipped, added).
     """
+    # Sub-wiersze: puste col A, ale maja dane wyciagu (col H) — zachowujemy osobno
+    sub_rows = [row for row in existing_rows
+                if not (row[0] if row else "") and len(row) > 7 and row[7]]
+    main_rows = [row for row in existing_rows
+                 if (row[0] if row else "")]
+
     verified = {
         row[0]: row
-        for row in existing_rows
+        for row in main_rows
         if len(row) > 2 and str(row[2]).strip() in ("1", "2", "9")
     }
     new_keys = {item["key"] for item in new_data}
@@ -796,6 +803,8 @@ def apply_sync_logic(existing_rows, new_data, has_address=False, default_status=
     for key, row in verified.items():
         if key not in new_keys:
             result.append(row)
+    # Dolacz sub-wiersze na koniec (beda po rebuild w sekcji, nie ma lepszego miejsca)
+    result.extend(sub_rows)
     return result, len(verified), len(new_data) - len(verified)
 
 
