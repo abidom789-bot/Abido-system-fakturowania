@@ -1801,10 +1801,10 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
     stan_net = stan_kp - stan_kw + old_balance
     ws.update("A1:G1", [[
         "STAN KASY (auto):",
-        round(stan_kp, 2),
-        round(-stan_kw, 2),
-        round(old_balance, 2),
         round(stan_net, 2),
+        "",
+        "",
+        "",
         "",
         "",
     ]])
