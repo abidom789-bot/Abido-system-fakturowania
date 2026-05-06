@@ -1747,7 +1747,7 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         val = str(row[0]).strip() if row else ""
         if val == marker:
             start_row = i + 1
-        elif start_row is not None and val.startswith("==="):
+        elif start_row is not None and re.match(r'^=== \d{6} ===$', val):
             end_row = i + 1
             break
 
@@ -1758,7 +1758,13 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         start_row = insert_at
     else:
         if end_row is None:
-            end_row = len(all_vals) + 1
+            # Brak kolejnego === bloku — znajdź koniec przez pusty wiersz separatora
+            for j in range(start_row - 1, len(all_vals)):
+                if not any(str(c).strip() for c in all_vals[j]):
+                    end_row = j + 2  # j jest 0-indeksowany; +1 żeby objąć separator
+                    break
+            if end_row is None:
+                end_row = start_row + len(block)  # ostateczny fallback
         ws.delete_rows(start_row, end_row - 1)
         ws.insert_rows(block, row=start_row)
 
