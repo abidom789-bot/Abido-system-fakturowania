@@ -1632,12 +1632,11 @@ _KPKW_STAN_BG   = {"red": 1.0,  "green": 0.95, "blue": 0.77}  # złoty — stan 
 _WHITE          = {"red": 1.0,  "green": 1.0,  "blue": 1.0}
 
 
-def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries, stan_kasy=None):
+def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries):
     """Buduje (rows, row_types) dla bloku miesięcznego.
-    row_types: 'marker' | 'header' | 'cat_header' | 'data' | 'stan' | 'separator'
+    row_types: 'marker' | 'header' | 'cat_header' | 'data' | 'separator'
     KP kwoty: dodatnie (kolumna C). KW kwoty: ujemne (kolumna G).
     Nagłówek: C = suma KP, D = bilans (KP+KW), G = suma KW (ujemna).
-    stan_kasy: wartość stanu kasy na koniec tego miesiąca (wpisywana na końcu bloku).
     """
     kp_total = sum(e[2] for e in kp_entries)
     kw_total = sum(e[2] for e in kw_entries)
@@ -1686,8 +1685,6 @@ def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries, stan_kasy=None):
                 kw_part = [d, _kp_kw_opis(k, a), round(-q, 2)]  # KW ujemne
             add(kp_part + [""] + kw_part, "data")
 
-    if stan_kasy is not None:
-        add(["Stan kasy:", "", round(stan_kasy, 2), "", "", "", ""], "stan")
     add(["", "", "", "", "", "", ""], "separator")
     return rows, types
 
@@ -1708,129 +1705,135 @@ def _fmt_ranges(row_nums):
 
 
 def refresh_kp_kw(spreadsheet, subfolder_name, sections):
-    """Nadpisuje blok biezacego miesiaca w zakładce 'Kp i Kw'."""
+    """Nadpisuje blok biezacego miesiaca w zakładce 'Kp i Kw'.
+
+    Logika stanu kasy (zakładka 'Kp i Kw'):
+    ─────────────────────────────────────────
+    • A1 = zawsze stan kasy na koniec NAJNOWSZEGO miesiąca w nowym systemie.
+    • Tuż po separatorze każdego bloku (=== MMYYYY ===) stoi złoty wiersz
+      zamknięcia (liczba w kolumnie A) = stan kasy na koniec POPRZEDNIEGO okresu
+      (czyli stan sprzed tego bloku). Wiersz ten jest wstawiany raz przy
+      pierwszym dodaniu miesiąca i NIE jest kasowany przy kolejnych odświeżeniach.
+    • Przy PIERWSZYM uruchomieniu (np. 042026):
+        - A1 przed wstawieniem = stary stan kasy wpisany ręcznie (np. 78 112,40)
+        - Ten stan staje się wierszem zamknięcia pod blokiem (np. A29 = 78 112,40)
+        - A1 = 78 112,40 + bilans_042026
+    • Przy ODŚWIEŻENIU (miesiąc już jest w arkuszu):
+        - Stary stan kasy odczytywany z wiersza zamknięcia poniżej separatora
+        - A1 = stary_stan + nowy_bilans_biezacego_miesiaca
+    • Przy DODANIU kolejnego miesiąca (052026 nad 042026):
+        - Obecna wartość A1 (= 67 882,72 = koniec kwietnia) staje się wierszem
+          zamknięcia pod nowym blokiem
+        - A1 = 67 882,72 + bilans_052026
+
+    Przygotowanie arkusza (raz, przed pierwszym odświeżeniem):
+        1. W zakładce 'Kp i Kw' wpisz ręcznie w A1 stan kasy na koniec
+           ostatniego miesiąca starego systemu (np. 78 112,40).
+        2. Poniżej (od wiersza 2) możesz mieć dowolne stare dane KP/KW.
+        3. Kliknij 'Odśwież KP / KW' — reszta dzieje się automatycznie.
+    """
     try:
         ws = spreadsheet.worksheet(_KP_KW_SHEET)
     except gspread.exceptions.WorksheetNotFound:
         ws = spreadsheet.add_worksheet(title=_KP_KW_SHEET, rows=600, cols=10)
 
     kp_entries, kw_entries = _extract_rk_entries(sections)
+    bilans_current = sum(e[2] for e in kp_entries) - sum(e[2] for e in kw_entries)
+    block, row_types = _build_kp_kw_block(subfolder_name, kp_entries, kw_entries)
 
-    # Snapshot arkusza (przed modyfikacjami — potrzebny do markera i starego stanu)
     all_vals = ws.get_all_values()
+    marker   = _KP_KW_MARKER.format(subfolder_name)
 
-    # ── Stary stan kasy (baza) ─────────────────────────────────────
-    # H1 przechowuje oryginalny stan z poprzedniego systemu.
-    # Przy pierwszym uruchomieniu: A1 zawiera ten stan — zapisujemy do H1.
     def _parse_num(s):
         try:
             return float(re.sub(r"[^\d\-.,]", "", str(s)).replace(",", "."))
         except Exception:
             return 0.0
 
-    h1_raw = all_vals[0][7] if all_vals and len(all_vals[0]) > 7 else ""
-    if h1_raw:
-        old_base = _parse_num(h1_raw)
-    else:
-        a1_raw = all_vals[0][0] if all_vals and all_vals[0] else ""
-        old_base = _parse_num(a1_raw)
-        if old_base:
-            ws.update("H1", [[round(old_base, 2)]])  # zapisz raz na stałe
-
-    marker = _KP_KW_MARKER.format(subfolder_name)
-
-    # Bilans bieżącego miesiąca
-    bilans_current = sum(e[2] for e in kp_entries) - sum(e[2] for e in kw_entries)
-
-    # Stan kasy na koniec tego miesiąca (H1 + bilansy innych bloków + bilans bieżący)
-    other_bilans = 0.0
-    for idx, row in enumerate(all_vals):
-        val = str(row[0]).strip()
-        if re.match(r'^=== \d{6} ===$', val) and val != marker:
-            if idx + 1 < len(all_vals):
-                d_val = all_vals[idx + 1][3] if len(all_vals[idx + 1]) > 3 else ""
-                try:
-                    other_bilans += float(
-                        re.sub(r"[^\d\-.,]", "", str(d_val)).replace(",", "."))
-                except Exception:
-                    pass
-
-    stan_net = round(old_base + other_bilans + bilans_current, 2)
-
-    # Blok z wbudowanym stanem kasy na końcu
-    block, row_types = _build_kp_kw_block(
-        subfolder_name, kp_entries, kw_entries, stan_kasy=stan_net)
-
-    # ── Wyszukaj marker i wstaw/zastąp blok ───────────────────────
+    # ── Wyszukaj marker i separator końca bloku ───────────────────
     start_row = None
-    end_row   = None
+    sep_idx   = None   # 0-based index separatora (pustego wiersza)
+    end_row   = None   # 1-based: kasuj wiersze start_row..end_row-1 (separator włącznie)
 
     for i, row in enumerate(all_vals):
         val = str(row[0]).strip() if row else ""
         if val == marker:
             start_row = i + 1
-        elif start_row is not None and re.match(r'^=== \d{6} ===$', val):
-            end_row = i + 1
-            break
+        elif start_row is not None:
+            if not any(str(c).strip() for c in row):
+                sep_idx = i
+                end_row = i + 2   # kasuj do separatora; wiersz zamknięcia (i+2) zostaje
+                break
+            elif re.match(r'^=== \d{6} ===$', val):
+                end_row = i + 1   # awaryjnie (brak separatora)
+                break
 
     if start_row is None:
-        # Nowy miesiąc — wsuń tuż pod wiersz 1 (stan kasy), stare dane schodzą w dół
+        # ── Nowy miesiąc ─────────────────────────────────────────
+        # Obecna A1 = poprzedni stan kasy (stary system lub poprzedni miesiąc)
+        old_base  = _parse_num(all_vals[0][0] if all_vals and all_vals[0] else "")
         insert_at = 2 if all_vals and any(c for c in all_vals[0]) else 1
         ws.insert_rows(block, row=insert_at)
         start_row = insert_at
+
+        # Wstaw wiersz zamknięcia (poprzedni stan kasy) tuż po separatorze bloku
+        if old_base:
+            closing_num = insert_at + len(block)
+            ws.insert_rows([[round(old_base, 2), "", "", "", "", "", ""]], row=closing_num)
+            ws.format(f"A{closing_num}:G{closing_num}",
+                      {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
     else:
+        # ── Odświeżenie istniejącego bloku ───────────────────────
+        # Stary stan kasy = wiersz zamknięcia poniżej separatora
+        old_base = 0.0
+        if sep_idx is not None and sep_idx + 1 < len(all_vals):
+            old_base = _parse_num(all_vals[sep_idx + 1][0])
+
         if end_row is None:
-            # Brak kolejnego === bloku — znajdź koniec przez pusty wiersz separatora
             for j in range(start_row - 1, len(all_vals)):
                 if not any(str(c).strip() for c in all_vals[j]):
-                    end_row = j + 2  # j jest 0-indeksowany; +1 żeby objąć separator
+                    sep_idx  = j
+                    end_row  = j + 2
+                    if j + 1 < len(all_vals):
+                        old_base = _parse_num(all_vals[j + 1][0])
                     break
             if end_row is None:
-                end_row = start_row + len(block)  # ostateczny fallback
+                end_row = start_row + len(block)
+
         ws.delete_rows(start_row, end_row - 1)
         ws.insert_rows(block, row=start_row)
 
+    # ── A1 = stan kasy bieżącego miesiąca ────────────────────────
+    stan_net = round(old_base + bilans_current, 2)
+    ws.update("A1:G1", [[stan_net, "", "", "", "", "", ""]])
+    ws.format("A1", {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
+
     # ── Formatowanie bloku ────────────────────────────────────────
-    # Zbierz numery wierszy według typu
-    type_rows = {"header": [], "cat_header": [], "data": [], "marker": [], "separator": [], "stan": []}
+    type_rows = {"header": [], "cat_header": [], "data": [], "marker": [], "separator": []}
     for i, rtype in enumerate(row_types):
         type_rows[rtype].append(start_row + i)
 
-    # Reset tła bloku do białego
     block_end = start_row + len(block) - 1
     ws.format(f"A{start_row}:G{block_end}", {"backgroundColor": _WHITE})
 
-    # Marker: jasny szary
     for r in type_rows["marker"]:
         ws.format(f"A{r}:G{r}", {"backgroundColor": {"red": 0.93, "green": 0.93, "blue": 0.93}})
 
-    # Nagłówek miesiąca: ciemny niebieski, biały tekst, pogrubiony
     for r in type_rows["header"]:
         ws.format(f"A{r}:G{r}", {
             "backgroundColor": _KPKW_HEADER_BG,
             "textFormat": {"bold": True, "foregroundColor": _WHITE},
         })
 
-    # Nagłówki kategorii: zielony (KP) i czerwony (KW)
     for r in type_rows["cat_header"]:
         ws.format(f"A{r}:C{r}", {"backgroundColor": _KPKW_CAT_KP_BG,
                                   "textFormat": {"bold": True}})
         ws.format(f"E{r}:G{r}", {"backgroundColor": _KPKW_CAT_KW_BG,
                                   "textFormat": {"bold": True}})
 
-    # Wiersze danych: jasny zielony KP / jasny różowy KW
     for r in type_rows["data"]:
         ws.format(f"A{r}:C{r}", {"backgroundColor": _KPKW_DATA_KP})
         ws.format(f"E{r}:G{r}", {"backgroundColor": _KPKW_DATA_KW})
-
-    # Wiersz stanu kasy na końcu bloku: złoty
-    for r in type_rows["stan"]:
-        ws.format(f"A{r}:G{r}", {"backgroundColor": _KPKW_STAN_BG,
-                                  "textFormat": {"bold": True}})
-
-    # ── Stan kasy — A1 (wyczyść cały wiersz 1, zapisz tylko A1) ──
-    ws.update("A1:G1", [[stan_net, "", "", "", "", "", ""]])
-    ws.format("A1", {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
 
 
 # ----------------------------------------------------------------
