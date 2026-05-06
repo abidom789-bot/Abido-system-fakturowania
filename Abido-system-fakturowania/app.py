@@ -1207,7 +1207,7 @@ def _build_unmatched_row(tx):
     tytul_low  = str(tx.get("tytul", "")).lower()
     if "blik" in rodzaj_low or "blik" in tytul_low:
         # Platnosci Blik: wplata (kwota > 0) lub wyplata (kwota < 0)
-        klucz = "roz_bankomat_rp_kw" if tx["kwota"] > 0 else "roz_bankomat_rk_kp"
+        klucz = "roz_bankomat_rk_kw" if tx["kwota"] > 0 else "roz_bankomat_rk_kp"
     else:
         klucz = "nieznany_out" if tx["kwota"] < 0 else "nieznany_in"
     return [
