@@ -651,16 +651,19 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name, credentials=
 
     results = []  # lista (filename, pdf_bytes)
 
-    for num, row in enumerate(rows, 1):
+    num = 0
+    for row in rows:
         name       = row[0] if len(row) > 0 else ""
         amount_str = row[1] if len(row) > 1 else ""
         klucz      = row[5] if len(row) > 5 else ""
-        nj         = najemcy_lookup.get(name, {})
-        address    = nj.get("address", "")
-        dates_str  = nj.get("dates",   "")
 
         if not name:
             continue
+
+        num += 1
+        nj        = najemcy_lookup.get(name, {})
+        address   = nj.get("address", "")
+        dates_str = nj.get("dates",   "")
 
         # Kwota (zawsze dodatnia na fakturze)
         try:
