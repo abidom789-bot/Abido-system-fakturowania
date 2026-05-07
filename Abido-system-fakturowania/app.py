@@ -1231,6 +1231,25 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None):
         if len(pool) == 1:
             assign(idx, pool[0])
 
+    # Przebieg 6: dla juz sparowanych kandydatow — poszukaj dodatkowych TX z tym samym
+    # nazwiskiem (nieuzytych). Trafi tam np. czesc platnosci za media od tego samego najemcy.
+    for idx, name, amount, direction in candidates:
+        if idx not in matched:
+            continue
+        tokens = _extract_name_tokens(name)
+        if not tokens:
+            continue
+        extra_hits = [
+            i for i in free_by_direction(idx, direction)
+            if _search_token(transactions[i], tokens[-1])
+            or (len(tokens) > 1 and _search_token(transactions[i], tokens[0]))
+        ]
+        if extra_hits:
+            prev = list(extras.get(idx, []))
+            extras[idx] = prev + extra_hits
+            for tx_i in extra_hits:
+                used_tx.add(tx_i)
+
     return matched, name_only, extras, used_tx
 
 
