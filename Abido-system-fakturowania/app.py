@@ -696,6 +696,89 @@ def get_or_create_worksheet(spreadsheet, sheet_name):
         return spreadsheet.add_worksheet(title=sheet_name, rows=500, cols=6)
 
 
+def create_month_template(spreadsheet, sheet_name):
+    """
+    Tworzy szablon miesiaca w arkuszu sheet_name.
+    - Jesli arkusz nie istnieje: tworzy go z wszystkimi sekcjami i 15 pustymi wierszami pod kazdą.
+    - Jesli istnieje: sprawdza brakujace sekcje i dodaje je w odpowiednim miejscu z 15 pustymi wierszami.
+    Zwraca (status, added_sections):
+      status = "created"         — nowy arkusz
+               "exists_partial"  — arkusz istnial, dodano brakujace sekcje
+               "exists_complete" — arkusz istnial, wszystkie sekcje juz byly
+    """
+    _BLANK_ROW  = [""] * len(HEADER_ROW)
+    _BLANK_ROWS = [_BLANK_ROW] * 15
+
+    def _color_sep(ws, row_num, sep):
+        _api(ws.format, f"A{row_num}:N{row_num}", {
+            "backgroundColor": SEP_COLORS[sep],
+            "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
+        })
+
+    try:
+        ws = spreadsheet.worksheet(sheet_name)
+        existed = True
+    except gspread.exceptions.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(title=sheet_name, rows=200, cols=20)
+        existed = False
+
+    if not existed:
+        # Nowy arkusz — wstaw naglowek + wszystkie sekcje z 15 pustymi wierszami
+        all_rows = [HEADER_ROW]
+        sep_row_nums = {}
+        for sep in SECTION_ORDER:
+            all_rows.append([sep] + [""] * (len(HEADER_ROW) - 1))
+            sep_row_nums[sep] = len(all_rows)
+            all_rows.extend(_BLANK_ROWS)
+        _api(ws.update, "A1", all_rows, value_input_option="USER_ENTERED")
+        for sep, rn in sep_row_nums.items():
+            _color_sep(ws, rn, sep)
+        return "created", list(SECTION_ORDER)
+
+    # Istniejacy arkusz — sprawdz ktore sekcje sa obecne
+    all_vals = _api(ws.get_all_values)
+    present_seps = {}
+    for i, row in enumerate(all_vals):
+        val = row[0] if row else ""
+        m = _match_separator(val)
+        if m:
+            present_seps[m] = i + 1  # 1-based
+
+    missing = [sep for sep in SECTION_ORDER if sep not in present_seps]
+    if not missing:
+        return "exists_complete", []
+
+    # Wstaw brakujace sekcje w odpowiednim miejscu (od gory do dolu z kumulowanym offsetem)
+    row_shift = 0
+    added = []
+    for sep in SECTION_ORDER:
+        if sep not in missing:
+            continue
+        sep_idx = SECTION_ORDER.index(sep)
+        insert_at = None
+        for next_sep in SECTION_ORDER[sep_idx + 1:]:
+            if next_sep in present_seps:
+                insert_at = present_seps[next_sep] + row_shift
+                break
+        rows_to_insert = [[sep] + [""] * (len(HEADER_ROW) - 1)] + _BLANK_ROWS
+        if insert_at is not None:
+            _api(ws.insert_rows, rows_to_insert, insert_at, value_input_option="USER_ENTERED")
+        else:
+            _api(ws.append_rows, rows_to_insert, value_input_option="USER_ENTERED")
+        row_shift += len(rows_to_insert)
+        added.append(sep)
+
+    # Pokoloruj nowo wstawione separatory
+    all_vals2 = _api(ws.get_all_values)
+    for i, row in enumerate(all_vals2):
+        val = row[0] if row else ""
+        m = _match_separator(val)
+        if m and m in added:
+            _color_sep(ws, i + 1, m)
+
+    return "exists_partial", added
+
+
 def _match_separator(val):
     """Rozpoznaje separator sekcji - dokladnie lub po slowach kluczowych (legacy)."""
     if val in SECTION_ORDER:
@@ -2910,6 +2993,14 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
 
     with left_col:
         with st.container(border=True):
+            st.markdown("#### Szablon miesiaca")
+            btn_szablon = st.button(
+                "Utwórz szablon miesiaca",
+                use_container_width=True,
+                type="primary",
+            )
+
+        with st.container(border=True):
             st.markdown("#### Faktury kosztowe")
             btn_czytaj = st.button(
                 "Zaczytaj faktury kosztowe",
@@ -2954,6 +3045,30 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
                 "Pokaż KP / KW",
                 use_container_width=True,
             )
+
+# ----------------------------------------------------------------
+# AKCJA: Utwórz szablon miesiaca
+# ----------------------------------------------------------------
+if btn_szablon:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu (np. 052026).")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds  = get_credentials()
+            client = gspread.authorize(creds)
+            sp     = client.open_by_key(SPREADSHEET_ID)
+            with st.spinner(f"Tworzę szablon dla {name}..."):
+                status, added = create_month_template(sp, name)
+            if status == "created":
+                st.success(f"Szablon {name} utworzony. Dodano {len(added)} sekcji.")
+            elif status == "exists_partial":
+                names = ", ".join(added)
+                st.warning(f"{name} już istnieje. Dodano brakujące sekcje: {names}")
+            else:
+                st.info(f"{name} już istnieje — wszystkie sekcje są kompletne.")
+        except Exception as e:
+            st.error(f"Wystąpił błąd: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Search Drive
