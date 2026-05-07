@@ -634,7 +634,7 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name, credentials=
     for num, row in enumerate(rows, 1):
         name       = row[0] if len(row) > 0 else ""
         amount_str = row[1] if len(row) > 1 else ""
-        klucz      = row[3] if len(row) > 3 else ""
+        klucz      = row[5] if len(row) > 5 else ""
         nj         = najemcy_lookup.get(name, {})
         address    = nj.get("address", "")
         dates_str  = nj.get("dates",   "")
@@ -661,7 +661,7 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name, credentials=
             days_remaining = last_day - contract_start.day + 1
             amount = round(amount * days_remaining / last_day, 2)
 
-        payment_method = "Gotówka" if klucz == "prz_naj_rk_kp" else "Przelew"
+        payment_method = "Przelew" if "pr_in" in klucz else "Gotówka"
         invoice_nr     = f"FVS {year} {month:02d} {num:02d} T"
         name_norm      = _normalize_name_for_filename(name)
         amt_str_fn     = f"{int(round(amount))}"
