@@ -977,6 +977,40 @@ def apply_sync_logic(existing_rows, new_data, has_address=False, default_status=
     return result, len(verified), len(new_data) - len(verified)
 
 
+def sort_inne_rk(worksheet):
+    """
+    Sortuje sekcje SEP_INNE_RK po dacie (kol G) potem nazwie (kol A).
+    Wiersze ze statusem=3 sa kotwicami — pozostaja na swoich pozycjach,
+    pozostale wiersze sortuja sie wokol nich.
+    Zwraca liczbe posortowanych wierszy (bez kotwic).
+    """
+    sections = read_all_sections(worksheet)
+    rows = sections[SEP_INNE_RK]
+
+    def _date_sort_key(row):
+        date_s = str(row[6]).strip() if len(row) > 6 else ""
+        # Normalizuj: "2026-04-15 00:00:00" → "2026-04-15" (leksyk. sortowalny)
+        m = re.match(r'^(\d{4}-\d{2}-\d{2})', date_s)
+        date_key = m.group(1) if m else ("9999" if not date_s else date_s)
+        name_key = str(row[0]).strip().lower() if row else ""
+        return (date_key, name_key)
+
+    anchors    = [(i, row) for i, row in enumerate(rows)
+                  if str(row[2] if len(row) > 2 else "").strip() == "3"]
+    non_anchors = [row for row in rows
+                   if str(row[2] if len(row) > 2 else "").strip() != "3"]
+    non_anchors_sorted = sorted(non_anchors, key=_date_sort_key)
+
+    # Re-wstaw kotwice na swoje oryginalne pozycje
+    result = list(non_anchors_sorted)
+    for pos, row in sorted(anchors, key=lambda x: x[0]):
+        result.insert(pos, row)
+
+    sections[SEP_INNE_RK] = result
+    rebuild_sheet(worksheet, sections)
+    return len(non_anchors)
+
+
 def sync_kosztowe(worksheet, files_data):
     sections                  = read_all_sections(worksheet)
     new_rows, skipped, added  = apply_sync_logic(sections[SEP_KOSZTOWE], files_data)
@@ -1765,6 +1799,7 @@ def sync_parowanie(worksheet, transactions):
         _extra_ids = {
             id(r) for r in extra_rows
             if not (len(r) > 2 and str(r[2]).strip() == "2" and (r[0] if r else ""))
+            and not (len(r) > 2 and str(r[2]).strip() == "3")
         }
         for _sec in SECTION_ORDER:
             if _sec == SEP_INNE_RK:
@@ -3045,6 +3080,30 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
                 "Pokaż KP / KW",
                 use_container_width=True,
             )
+            btn_sortuj_inne_rk = st.button(
+                "Sortuj Inne RK",
+                use_container_width=True,
+            )
+
+# ----------------------------------------------------------------
+# AKCJA: Sortuj Inne RK
+# ----------------------------------------------------------------
+if btn_sortuj_inne_rk:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds  = get_credentials()
+            client = gspread.authorize(creds)
+            worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(name)
+            with st.spinner("Sortuję Inne RK..."):
+                n = sort_inne_rk(worksheet)
+            st.success(f"Posortowano {n} wierszy w sekcji Inne RK (kotwice status=3 zachowane).")
+        except gspread.exceptions.WorksheetNotFound:
+            st.error(f"Arkusz '{name}' nie istnieje.")
+        except Exception as e:
+            st.error(f"Wystąpił błąd: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Utwórz szablon miesiaca
