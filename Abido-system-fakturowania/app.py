@@ -1550,6 +1550,19 @@ def sync_parowanie(worksheet, transactions):
 
     # Weryfikacja: policz i zsumuj wiersze z danymi wyciagu (col H niepusta)
     # Obejmuje: sparowane (w sekcjach) + niesparowane (SEP_NIEZNANE) + zamrozone (status=2)
+
+    def _norm_date(s):
+        """Normalizuje date do formatu DD-MM-YYYY bez wzgledu na to jak Google Sheets
+        ja zapisal (np. '2026-04-15 00:00:00' lub '15/04/2026' → '15-04-2026')."""
+        s = str(s or "").strip()
+        m = re.match(r'^(\d{4})-(\d{2})-(\d{2})', s)
+        if m:
+            return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+        m = re.match(r'^(\d{2})/(\d{2})/(\d{4})', s)
+        if m:
+            return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        return s
+
     sheet_tx_count = 0
     sheet_tx_sum   = 0.0
     sheet_rows_with_bank = []   # (sig, row) — do diagnostyki
@@ -1565,7 +1578,7 @@ def sync_parowanie(worksheet, transactions):
                     sheet_tx_sum += kwota_r
                 sig = (
                     round(kwota_r, 2),
-                    str(r[6]).strip() if len(r) > 6 else "",
+                    _norm_date(r[6]) if len(r) > 6 else "",
                     str(r[11]).strip() if len(r) > 11 else "",
                     str(r[7]).strip()[:30] if len(r) > 7 else "",
                 )
@@ -1574,7 +1587,7 @@ def sync_parowanie(worksheet, transactions):
     # Diagnostyka: ktore TX sa w pliku ale nie w arkuszu i odwrotnie
     from collections import Counter as _Counter
     def _tx_sig(tx):
-        return (round(float(tx["kwota"]), 2), str(tx["data_ks"]).strip(),
+        return (round(float(tx["kwota"]), 2), _norm_date(tx["data_ks"]),
                 str(tx["nr_rachunku"]).strip(), str(tx["tytul"]).strip()[:30])
 
     file_sig_counter  = _Counter(_tx_sig(tx) for tx in transactions)
