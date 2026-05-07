@@ -714,6 +714,16 @@ def _match_separator(val):
     return None
 
 
+def _migrate_row(row):
+    """Konwertuje stary wiersz 17-kolumnowy (D/E/F = raport_kasowy/Adres/Data_umowy)
+    do nowego 14-kolumnowego (A,B,C + Klucz..Uwagi).
+    Wywolywane automatycznie przy odczycie — jednorazowa migracja bez akcji uzytkownika.
+    """
+    if len(row) > 14:
+        return list(row[:3]) + list(row[6:])
+    return list(row)
+
+
 def read_all_sections(worksheet):
     """
     Czyta caly arkusz i zwraca slownik sekcji:
@@ -729,6 +739,7 @@ def read_all_sections(worksheet):
         if matched:
             current = matched
         elif current:
+            row = _migrate_row(row)   # migracja 17-kol → 14-kol (jesli stary format)
             if current == SEP_NIEZNANE:
                 # SEP_NIEZNANE: brak faktury w A — wlaczamy jesli cokolwiek wypelnione
                 if any(c for c in row):
@@ -767,9 +778,10 @@ def rebuild_sheet(worksheet, sections):
     """
     all_new = [HEADER_ROW]
     sep_row_nums  = {}   # sep -> numer wiersza (1-based)
-    kp_rows       = []   # wiersze z _rk_kp w kluczu (col G)
-    kw_rows       = []   # wiersze z _rk_kw w kluczu (col G)
+    kp_rows       = []   # wiersze z _rk_kp w kluczu (col D)
+    kw_rows       = []   # wiersze z _rk_kw w kluczu (col D)
     multi_rows    = []   # wiersze nalezace do multi-parowania (1 faktura → kilka TX)
+    frozen3_rows  = []   # wiersze ze statusem=3 (nietykalny kolor i pozycja)
     last_main_num = None # numer wiersza ostatniego "glownego" wiersza (col A niepuste)
     for sep in SECTION_ORDER:
         if sections[sep]:
@@ -783,6 +795,10 @@ def rebuild_sheet(worksheet, sections):
                 col_a = str(row[0]).strip() if row else ""
                 col_c = str(row[2]).strip() if len(row) > 2 else ""
                 col_h = str(row[4]).strip() if len(row) > 4 else ""
+                if col_c == "3":
+                    frozen3_rows.append(row_num)
+                    last_main_num = None
+                    continue   # status=3: nie dotykaj koloru ani pozycji
                 if col_a:
                     last_main_num = row_num   # zapamietaj glowny wiersz
                 elif not col_a and col_c == "2" and col_h:
