@@ -1349,17 +1349,32 @@ def sync_parowanie(worksheet, transactions):
     for sep in SECTION_ORDER:
         frozen, active = [], []
         seen_sub_sigs = set()
+        last_main_frozen = False   # czy ostatni glowny wiersz byl zamrozony?
         for row in sections[sep]:
-            if len(row) > 2 and str(row[2]).strip() == "2":
-                is_sub = not (row[0] if row else "")
-                if is_sub:
-                    sig = _sub_row_sig(row)
-                    if sig in seen_sub_sigs:
-                        continue  # duplikat sub-wiersza — pominij
-                    seen_sub_sigs.add(sig)
-                frozen.append(row)
+            if sep == SEP_NIEZNANE:
+                # NIEZNANE nie ma sub-wierszy — stara prosta logika
+                if len(row) > 2 and str(row[2]).strip() == "2":
+                    frozen.append(row)
+                else:
+                    active.append(row)
+                continue
+            is_main = bool(row[0] if row else "")
+            if is_main:
+                if len(row) > 2 and str(row[2]).strip() == "2":
+                    frozen.append(row)
+                    last_main_frozen = True
+                else:
+                    active.append(row)
+                    last_main_frozen = False
             else:
-                active.append(row)
+                # Sub-wiersz (A='')
+                if last_main_frozen:
+                    # Rodzic zamrozony → zachowaj, deduplikuj
+                    sig = _sub_row_sig(row)
+                    if sig not in seen_sub_sigs:
+                        seen_sub_sigs.add(sig)
+                        frozen.append(row)
+                # Rodzic aktywny → wyrzuc; pass 6 odtworzy sub-wiersz w wlasciwej pozycji
         frozen_backup[sep] = frozen
         sections[sep] = active
 
