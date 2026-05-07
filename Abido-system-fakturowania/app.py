@@ -1334,6 +1334,16 @@ def sync_parowanie(worksheet, transactions):
     """
     sections = read_all_sections(worksheet)
 
+    # Sygnatury TX już obecnych w INNE_RK — zapobiegają podwójnemu dodaniu bankomatów
+    _inne_rk_tx_sigs = set()
+    for _r in sections[SEP_INNE_RK]:
+        if len(_r) > 6 and str(_r[6]).strip():
+            try:
+                _kw = round(float(re.sub(r"[^\d,.\-]", "", str(_r[5])).replace(",", ".")), 2)
+            except (ValueError, TypeError):
+                continue
+            _inne_rk_tx_sigs.add((_kw, str(_r[6]).strip(), str(_r[11]).strip() if len(_r) > 11 else ""))
+
     # ── KROK 0: Snapshot status=2 ──────────────────────────────────────────────
     # Fizycznie wyjmij zamrozone wiersze ze wszystkich sekcji zanim cokolwiek
     # zostanie dotkniete. Zadna petla parowania ich nie zobaczy.
@@ -1435,7 +1445,7 @@ def sync_parowanie(worksheet, transactions):
     flat = [(c[0], c[3], c[4], c[5]) for c in candidates]
     multi_eligible = {c[0] for c in candidates if c[1] in (SEP_SPRZEDAZ, SEP_WLASC)}
     matched, name_only, extras, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked, multi_eligible=multi_eligible)
-    # Bankomat TX (nie-zamrozone) ida do SEP_NIEZNANE — usun z used_tx
+    # Bankomat TX (nie-zamrozone) ida do SEP_INNE_RK — usun z used_tx
     used_tx -= bankomat_excluded
 
     unmatched_count = 0
@@ -1545,11 +1555,43 @@ def sync_parowanie(worksheet, transactions):
             _seen_frozen_sigs.add(_sig)
         frozen_nieznane.append(r)
 
-    unmatched_rows = [
-        _build_unmatched_row(transactions[i])
-        for i in range(len(transactions))
-        if i not in used_tx
-    ]
+    # Rozdziel niesparowane: bankomaty → SEP_INNE_RK, reszta → SEP_NIEZNANE
+    _new_inne_rk = []
+    unmatched_rows = []
+    for i in range(len(transactions)):
+        if i in used_tx:
+            continue
+        tx = transactions[i]
+        kontrahent_low = str(tx.get("kontrahent", "")).lower()
+        if "bankomat" in kontrahent_low:
+            klucz = "roz_bankomat_rk_kw" if tx["kwota"] > 0 else "roz_bankomat_rk_kp"
+            try:
+                _kw_sig = round(float(tx["kwota"]), 2)
+            except (ValueError, TypeError):
+                _kw_sig = 0.0
+            _sig = (_kw_sig, str(tx["data_ks"]).strip(), str(tx.get("nr_rachunku", "")).strip())
+            if _sig in _inne_rk_tx_sigs:
+                continue
+            _inne_rk_tx_sigs.add(_sig)
+            _new_inne_rk.append([
+                tx["kontrahent"].split("|")[0],  # A
+                tx["kwota"],                     # B
+                "0",                             # C
+                klucz,                           # D
+                tx["kontrahent"].split("|")[0],  # E
+                tx["kwota"],                     # F
+                tx["data_ks"],                   # G
+                tx["tytul"][:100],               # H
+                tx["data_op"],                   # I
+                tx["rodzaj"],                    # J
+                tx["waluta"],                    # K
+                tx["nr_rachunku"],               # L
+                _extract_name_from_tx(tx),       # M
+                "",                              # N
+            ])
+        else:
+            unmatched_rows.append(_build_unmatched_row(tx))
+    sections[SEP_INNE_RK] = sections[SEP_INNE_RK] + _new_inne_rk
 
     def _nieznane_sort_key(row):
         k = str(row[3]).strip().lower() if len(row) > 3 else ""
