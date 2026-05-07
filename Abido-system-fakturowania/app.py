@@ -4,6 +4,7 @@ import re
 import time
 import calendar
 import unicodedata
+from collections import Counter
 import xlrd
 import streamlit as st
 import gspread
@@ -988,12 +989,22 @@ def sort_inne_rk(worksheet):
     rows = sections[SEP_INNE_RK]
 
     def _date_sort_key(row):
+        klucz = str(row[3]).strip().lower() if len(row) > 3 else ""
+        if "depo" in klucz and ("pr_in" in klucz or "_in" in klucz):
+            priority = 0   # depo otrzymane
+        elif "depo" in klucz:
+            priority = 1   # depo wydane
+        elif "bankomat" in klucz and "_kp" in klucz:
+            priority = 2   # wpłata bankomatowa
+        elif "bankomat" in klucz and "_kw" in klucz:
+            priority = 3   # wypłata bankomatowa
+        else:
+            priority = 4   # pozostałe
         date_s = str(row[6]).strip() if len(row) > 6 else ""
-        # Normalizuj: "2026-04-15 00:00:00" → "2026-04-15" (leksyk. sortowalny)
         m = re.match(r'^(\d{4}-\d{2}-\d{2})', date_s)
         date_key = m.group(1) if m else ("9999" if not date_s else date_s)
         name_key = str(row[0]).strip().lower() if row else ""
-        return (date_key, name_key)
+        return (priority, date_key, name_key)
 
     anchors    = [(i, row) for i, row in enumerate(rows)
                   if str(row[2] if len(row) > 2 else "").strip() == "3"]
@@ -1451,15 +1462,17 @@ def sync_parowanie(worksheet, transactions):
     """
     sections = read_all_sections(worksheet)
 
-    # Sygnatury TX już obecnych w INNE_RK — zapobiegają podwójnemu dodaniu bankomatów
-    _inne_rk_tx_sigs = set()
+    # Sygnatury TX już obecnych w INNE_RK — zapobiegają podwójnemu dodaniu bankomatów.
+    # Counter zamiast set: wiele identycznych TX (np. 8x -200 zł z tego samego bankomatu
+    # tego samego dnia) ma tę samą sygnaturę — Counter pozwala dodać tyle ile jest w pliku.
+    _inne_rk_sigs = Counter()
     for _r in sections[SEP_INNE_RK]:
         if len(_r) > 6 and str(_r[6]).strip():
             try:
                 _kw = round(float(re.sub(r"[^\d,.\-]", "", str(_r[5])).replace(",", ".")), 2)
             except (ValueError, TypeError):
                 continue
-            _inne_rk_tx_sigs.add((_kw, str(_r[6]).strip(), str(_r[11]).strip() if len(_r) > 11 else ""))
+            _inne_rk_sigs[(_kw, str(_r[6]).strip(), str(_r[11]).strip() if len(_r) > 11 else "")] += 1
 
     # ── KROK 0: Snapshot status=2 ──────────────────────────────────────────────
     # Fizycznie wyjmij zamrozone wiersze ze wszystkich sekcji zanim cokolwiek
@@ -1687,9 +1700,9 @@ def sync_parowanie(worksheet, transactions):
             except (ValueError, TypeError):
                 _kw_sig = 0.0
             _sig = (_kw_sig, str(tx["data_ks"]).strip(), str(tx.get("nr_rachunku", "")).strip())
-            if _sig in _inne_rk_tx_sigs:
+            if _inne_rk_sigs[_sig] > 0:
+                _inne_rk_sigs[_sig] -= 1
                 continue
-            _inne_rk_tx_sigs.add(_sig)
             _new_inne_rk.append([
                 tx["kontrahent"].split("|")[0],  # A
                 tx["kwota"],                     # B
@@ -1764,19 +1777,18 @@ def sync_parowanie(worksheet, transactions):
                 sheet_rows_with_bank.append((sig, r))
 
     # Diagnostyka: ktore TX sa w pliku ale nie w arkuszu i odwrotnie
-    from collections import Counter as _Counter
     def _tx_sig(tx):
         return (round(float(tx["kwota"]), 2), _norm_date(tx["data_ks"]),
                 str(tx["nr_rachunku"]).strip(), str(tx["tytul"]).strip()[:30])
 
-    file_sig_counter  = _Counter(_tx_sig(tx) for tx in transactions)
-    sheet_sig_counter = _Counter(sig for sig, _ in sheet_rows_with_bank)
+    file_sig_counter  = Counter(_tx_sig(tx) for tx in transactions)
+    sheet_sig_counter = Counter(sig for sig, _ in sheet_rows_with_bank)
 
     missing_sigs = file_sig_counter - sheet_sig_counter
     extra_sigs   = sheet_sig_counter - file_sig_counter
 
     missing_txs = []
-    used_m = _Counter()
+    used_m = Counter()
     for tx in transactions:
         sig = _tx_sig(tx)
         if missing_sigs[sig] > used_m[sig]:
@@ -1784,7 +1796,7 @@ def sync_parowanie(worksheet, transactions):
             used_m[sig] += 1
 
     extra_rows = []
-    used_e = _Counter()
+    used_e = Counter()
     for sig, r in sheet_rows_with_bank:
         if extra_sigs[sig] > used_e[sig]:
             extra_rows.append(r)
