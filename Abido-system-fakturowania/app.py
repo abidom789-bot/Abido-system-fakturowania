@@ -3002,6 +3002,7 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
         niesparowane = data["niesparowane"]
         fioletowe   = data["fioletowe"]
         pomaranczowe = data["pomaranczowe"]
+        subfolder_name_d = data.get("subfolder_name", "")
         tx_total    = data["tx_total"]
         tx_sum      = data["tx_sum"]
         sheet_tx_count = data["sheet_tx_count"]
@@ -3040,6 +3041,20 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
                      for tx in missing],
                     use_container_width=True,
                 )
+                if st.button("Wklej brakujące do arkusza", type="primary"):
+                    try:
+                        creds_d = get_credentials()
+                        client_d = gspread.authorize(creds_d)
+                        ws_d = get_or_create_worksheet(
+                            client_d.open_by_key(SPREADSHEET_ID), subfolder_name_d
+                        )
+                        secs_d = read_all_sections(ws_d)
+                        for tx in missing:
+                            secs_d[SEP_NIEZNANE].append(_build_unmatched_row(tx))
+                        rebuild_sheet(ws_d, secs_d)
+                        st.success(f"Wklejono {len(missing)} brakujących wierszy do sekcji NIEZNANE.")
+                    except Exception as e:
+                        st.error(f"Błąd: {e}")
             if extra:
                 st.warning(f"**Nadmiarowe w arkuszu** ({len(extra)} poz.) — są w arkuszu, nie ma w pliku:")
                 rows_e = []
@@ -3293,6 +3308,7 @@ if btn_paruj:
                     "sheet_tx_count": sheet_tx_count,
                     "sheet_tx_sum":   sheet_tx_sum,
                     "diff_info":      diff_info,
+                    "subfolder_name": name,
                 })
 
         except Exception as e:
