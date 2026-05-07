@@ -108,3 +108,40 @@ Nowe przyciski: dodaj do odpowiedniej kolumny lub dodaj trzecia kolumne.
 - Secrets: `[gcp_service_account]` (JSON Service Account)
 - Push: `git push origin master:main`
 - Lokalnie: `C:/repos abidom789/Abido-system-fakturowania/`
+
+---
+
+## OAuth — wgrywanie faktur PDF na Google Drive
+
+Funkcja `upload_invoices_to_drive` uzywa osobnych credentials OAuth2 (nie Service Account).
+Token wygasa co jakis czas. Przy bledzie `invalid_grant` aplikacja automatycznie przechodzi
+w tryb pobierania (przyciski download). Zeby przywrocic wgrywanie na Drive:
+
+### Odnowienie tokena (lokalnie)
+
+```
+cd "C:\repos abidom789\Abido-system-fakturowania"
+python get_refresh_token.py
+```
+
+Skrypt otworzy przegladarke — zaloguj sie kontem z dostepem do folderu Faktury na Drive.
+Terminal wypisze gotowy blok TOML do wklejenia w Streamlit secrets.
+
+### Wklejenie do Streamlit secrets
+
+1. share.streamlit.io → aplikacja → `⋮` → Settings → Secrets
+2. Znajdz blok `[google_drive_oauth]` i zastap calym nowym blokiem z terminala:
+   ```toml
+   [google_drive_oauth]
+   client_id = "201207242115-..."
+   client_secret = "GOCSPX-..."
+   refresh_token = "1//0g..."
+   ```
+3. Save — aplikacja restartuje sie automatycznie
+
+### Dane OAuth (juz w skrypcie, nie trzeba pobierac z Console)
+
+- client_id i client_secret sa na stale w `get_refresh_token.py`
+- Projekt GCP: `regal-river-494622-c7`
+- Jesli kiedys trzeba stworzyc nowe OAuth Client ID:
+  console.cloud.google.com → APIs & Services → Credentials → Create → OAuth 2.0 Client ID → Desktop app
