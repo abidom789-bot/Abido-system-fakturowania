@@ -30,6 +30,34 @@ def _api(fn, *args, **kwargs):
                 raise
 
 
+def _batch_format_rows(worksheet, row_formats):
+    """Wysyła wszystkie formatowania wierszy w jednym API call (batchUpdate).
+
+    row_formats: lista (row_num_1based, format_dict)
+    format_dict: np. {"backgroundColor": {...}} lub {"backgroundColor": ..., "textFormat": ...}
+    """
+    if not row_formats:
+        return
+    sheet_id = worksheet._properties["sheetId"]
+    requests = []
+    for row_num, fmt in row_formats:
+        fields = ",".join(f"userEnteredFormat.{k}" for k in fmt.keys())
+        requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": row_num - 1,
+                    "endRowIndex": row_num,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": 14,
+                },
+                "cell": {"userEnteredFormat": fmt},
+                "fields": fields,
+            }
+        })
+    _api(worksheet.spreadsheet.batch_update, {"requests": requests})
+
+
 # ----------------------------------------------------------------
 # KONFIGURACJA
 # ----------------------------------------------------------------
@@ -944,22 +972,21 @@ def rebuild_sheet(worksheet, sections):
     })
     if all_new:
         _api(worksheet.update, "A1", all_new, value_input_option="USER_ENTERED")
+    row_fmts = []
     for sep, row_num in sep_row_nums.items():
-        _api(worksheet.format, f"A{row_num}:N{row_num}", {
+        row_fmts.append((row_num, {
             "backgroundColor": SEP_COLORS[sep],
-            "textFormat": {
-                "bold": True,
-                "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
-            },
-        })
+            "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
+        }))
     for row_num in multi_rows:
-        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _MULTI_BG})
+        row_fmts.append((row_num, {"backgroundColor": _MULTI_BG}))
     for row_num in kp_rows:
-        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _KP_BG})
+        row_fmts.append((row_num, {"backgroundColor": _KP_BG}))
     for row_num in kw_rows:
-        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _KW_BG})
+        row_fmts.append((row_num, {"backgroundColor": _KW_BG}))
     for row_num in frozen3_rows:
-        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _FROZEN3_BG})
+        row_fmts.append((row_num, {"backgroundColor": _FROZEN3_BG}))
+    _batch_format_rows(worksheet, row_fmts)
     # Jawnie ustaw format liczbowy dla wyciag_Kwota (kol F) — bez tego kol. dziedziczy
     # format DATE po starej kolumnie i liczby wyswietlaja sie jako daty.
     _api(worksheet.format, "F2:F500", {"numberFormat": {"type": "NUMBER", "pattern": "0.00"}})
@@ -1856,10 +1883,11 @@ def sync_parowanie(worksheet, transactions):
         elif marker == _ORANGE_MARKER:
             orange_rows.append(row_num)
             clear_updates.append({"range": f"N{row_num}", "values": [[""]]})
-    for row_num in purple_rows:
-        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _PURPLE_BG})
-    for row_num in orange_rows:
-        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _ORANGE_BG})
+    color_fmts = (
+        [(r, {"backgroundColor": _PURPLE_BG}) for r in purple_rows] +
+        [(r, {"backgroundColor": _ORANGE_BG}) for r in orange_rows]
+    )
+    _batch_format_rows(worksheet, color_fmts)
     if clear_updates:
         _api(worksheet.batch_update, clear_updates)
 
