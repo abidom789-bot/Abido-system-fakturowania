@@ -1887,7 +1887,21 @@ def sync_parowanie(worksheet, transactions):
     for tx in missing_txs:
         sections[SEP_NIEZNANE].append(_build_unmatched_row(tx))
 
-    diff_info = {"missing": [], "extra": []}   # po reconcile zawsze 0
+    diff_info = {"missing": missing_txs, "extra": extra_rows,
+                 "reconciled": True}   # naprawiono automatycznie
+
+    # Przelicz sheet_tx_count/sum po reconcile (zmodyfikowane sekcje)
+    sheet_tx_count = 0
+    sheet_tx_sum   = 0.0
+    for _sec_rows in sections.values():
+        for _r in _sec_rows:
+            if len(_r) > 4 and str(_r[4]).strip():
+                sheet_tx_count += 1
+                try:
+                    _v = float(re.sub(r"[^\d,.\-]", "", str(_r[5])).replace(",", ".")) if len(_r) > 5 and str(_r[5]).strip() else 0.0
+                except (ValueError, TypeError):
+                    _v = 0.0
+                sheet_tx_sum += _v
 
     rebuild_sheet(worksheet, sections)
 
@@ -3085,31 +3099,34 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
             f"{'  ✓' if ok_sum else f'  ← RÓŻNICA: {sheet_tx_sum - tx_sum:+.2f} PLN'}"
         )
 
+        missing = diff_info.get("missing", [])
+        extra   = diff_info.get("extra", [])
+        reconciled = diff_info.get("reconciled", False)
+        label = "Naprawiono automatycznie" if reconciled else "Wykryto"
+        if missing:
+            st.info(f"ℹ️ **{label} — brakujące** ({len(missing)} poz.) dodane do NIEZNANE:")
+            st.dataframe(
+                [{"Kwota": tx["kwota"], "Data KS": tx["data_ks"],
+                  "Kontrahent": tx["kontrahent"].split("|")[0],
+                  "Nr rachunku": tx["nr_rachunku"], "Tytuł": tx["tytul"][:60]}
+                 for tx in missing],
+                use_container_width=True,
+            )
+        if extra:
+            st.info(f"ℹ️ **{label} — nadmiarowe** ({len(extra)} poz.) usunięte z arkusza:")
+            rows_e = []
+            for r in extra:
+                try:
+                    kwota_e = float(re.sub(r"[^\d,.\-]", "", str(r[5])).replace(",", ".")) if len(r) > 5 else 0.0
+                except (ValueError, TypeError):
+                    kwota_e = 0.0
+                rows_e.append({"Kwota": kwota_e, "Data KS": r[6] if len(r) > 6 else "",
+                               "Kontrahent": r[4] if len(r) > 4 else "",
+                               "Nr rachunku": r[11] if len(r) > 11 else "",
+                               "Tytuł": str(r[7])[:60] if len(r) > 7 else ""})
+            st.dataframe(rows_e, use_container_width=True)
         if not ok_count or not ok_sum:
-            missing = diff_info.get("missing", [])
-            extra   = diff_info.get("extra", [])
-            if missing:
-                st.warning(f"**Brakuje w arkuszu** ({len(missing)} poz.) — są w pliku, nie ma w arkuszu:")
-                st.dataframe(
-                    [{"Kwota": tx["kwota"], "Data KS": tx["data_ks"],
-                      "Kontrahent": tx["kontrahent"].split("|")[0],
-                      "Nr rachunku": tx["nr_rachunku"], "Tytuł": tx["tytul"][:60]}
-                     for tx in missing],
-                    use_container_width=True,
-                )
-            if extra:
-                st.warning(f"**Nadmiarowe w arkuszu** ({len(extra)} poz.) — są w arkuszu, nie ma w pliku:")
-                rows_e = []
-                for r in extra:
-                    try:
-                        kwota_e = float(re.sub(r"[^\d,.\-]", "", str(r[5])).replace(",", ".")) if len(r) > 5 else 0.0
-                    except (ValueError, TypeError):
-                        kwota_e = 0.0
-                    rows_e.append({"Kwota": kwota_e, "Data KS": r[6] if len(r) > 6 else "",
-                                   "Kontrahent": r[4] if len(r) > 4 else "",
-                                   "Nr rachunku": r[11] if len(r) > 11 else "",
-                                   "Tytuł": str(r[7])[:60] if len(r) > 7 else ""})
-                st.dataframe(rows_e, use_container_width=True)
+            st.warning("Nadal są różnice po reconcile — sprawdź arkusz ręcznie.")
 
     with left_col:
         with st.container(border=True):
