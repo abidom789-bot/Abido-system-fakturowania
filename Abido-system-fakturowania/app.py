@@ -46,8 +46,8 @@ SCOPES = [
 ]
 
 HEADER_ROW = [
-    "Nazwa / Plik", "Kwota brutto", "Status", "Kwota_raport_kasowy",
-    "Adres", "Data_umowy", "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
+    "Nazwa / Plik", "Kwota brutto", "Status",
+    "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
     "Data_ksiegowania", "wyciag_Tytul",
     "wyciag_Data_op", "wyciag_Rodzaj", "wyciag_Waluta",
     "wyciag_Nr_rachunku", "wyciag_Imie_Nazwisko", "Uwagi",
@@ -634,7 +634,7 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name, credentials=
     for num, row in enumerate(rows, 1):
         name       = row[0] if len(row) > 0 else ""
         amount_str = row[1] if len(row) > 1 else ""
-        klucz      = row[6] if len(row) > 6 else ""
+        klucz      = row[3] if len(row) > 3 else ""
         nj         = najemcy_lookup.get(name, {})
         address    = nj.get("address", "")
         dates_str  = nj.get("dates",   "")
@@ -736,8 +736,8 @@ def read_all_sections(worksheet):
             elif val:
                 # Normalny wiersz — klucz w kol A
                 sections[current].append(row)
-            elif len(row) > 7 and row[7]:
-                # Dodatkowy wiersz parowania: puste A i B, ale jest kontrahent w kol H
+            elif len(row) > 4 and row[4]:
+                # Dodatkowy wiersz parowania: puste A i B, ale jest kontrahent w kol E
                 # (np. kilka transakcji bankowych do jednej faktury)
                 sections[current].append(row)
     return sections
@@ -779,10 +779,10 @@ def rebuild_sheet(worksheet, sections):
             for row in sections[sep]:
                 all_new.append(row)
                 row_num = len(all_new)
-                klucz = str(row[6]).strip() if len(row) > 6 else ""
+                klucz = str(row[3]).strip() if len(row) > 3 else ""
                 col_a = str(row[0]).strip() if row else ""
                 col_c = str(row[2]).strip() if len(row) > 2 else ""
-                col_h = str(row[7]).strip() if len(row) > 7 else ""
+                col_h = str(row[4]).strip() if len(row) > 4 else ""
                 if col_a:
                     last_main_num = row_num   # zapamietaj glowny wiersz
                 elif not col_a and col_c == "2" and col_h:
@@ -799,7 +799,7 @@ def rebuild_sheet(worksheet, sections):
                     kw_rows.append(row_num)
     _api(worksheet.clear)
     # Reset formatowania calego arkusza (clear() nie czysci kolorow)
-    _api(worksheet.format, "A1:Q500", {
+    _api(worksheet.format, "A1:N500", {
         "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
         "textFormat": {"bold": False},
         "horizontalAlignment": "CENTER",
@@ -807,7 +807,7 @@ def rebuild_sheet(worksheet, sections):
     if all_new:
         _api(worksheet.update, "A1", all_new, value_input_option="USER_ENTERED")
     for sep, row_num in sep_row_nums.items():
-        _api(worksheet.format, f"A{row_num}:P{row_num}", {
+        _api(worksheet.format, f"A{row_num}:N{row_num}", {
             "backgroundColor": SEP_COLORS[sep],
             "textFormat": {
                 "bold": True,
@@ -815,11 +815,11 @@ def rebuild_sheet(worksheet, sections):
             },
         })
     for row_num in multi_rows:
-        _api(worksheet.format, f"A{row_num}:Q{row_num}", {"backgroundColor": _MULTI_BG})
+        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _MULTI_BG})
     for row_num in kp_rows:
-        _api(worksheet.format, f"A{row_num}:Q{row_num}", {"backgroundColor": _KP_BG})
+        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _KP_BG})
     for row_num in kw_rows:
-        _api(worksheet.format, f"A{row_num}:Q{row_num}", {"backgroundColor": _KW_BG})
+        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _KW_BG})
 
 
 def apply_sync_logic(existing_rows, new_data, has_address=False, default_status="0"):
@@ -831,7 +831,7 @@ def apply_sync_logic(existing_rows, new_data, has_address=False, default_status=
     """
     # Sub-wiersze: puste col A, ale maja dane wyciagu (col H) — zachowujemy osobno
     sub_rows = [row for row in existing_rows
-                if not (row[0] if row else "") and len(row) > 7 and row[7]]
+                if not (row[0] if row else "") and len(row) > 4 and row[4]]
     main_rows = [row for row in existing_rows
                  if (row[0] if row else "")]
 
@@ -916,7 +916,7 @@ def count_parowanie_statuses(credentials, spreadsheet_id, sheet_name):
         counts = {"s0": 0, "s1_bez": 0, "s1_para": 0, "s2": 0}
         for row in sections[sep]:
             status = str(row[2]).strip() if len(row) > 2 else ""
-            has_pair = len(row) > 7 and str(row[7]).strip() != ""
+            has_pair = len(row) > 4 and str(row[4]).strip() != ""
             if status == "0":
                 counts["s0"] += 1
             elif status == "1":
@@ -1064,19 +1064,19 @@ def _frozen_tx_pre_used(sections, transactions):
         for row in sections[sep]:
             if str(row[2]).strip() != "2":   # tylko status=2 blokuje TX
                 continue
-            if len(row) <= 9 or not str(row[9]).strip():
+            if len(row) <= 6 or not str(row[6]).strip():
                 continue  # brak daty_ks = nigdy nie bylo sparowania
             try:
                 kwota = round(float(
-                    re.sub(r"[^\d,.\-]", "", str(row[8])).replace(",", ".")
+                    re.sub(r"[^\d,.\-]", "", str(row[5])).replace(",", ".")
                 ), 2)
             except (ValueError, TypeError):
                 continue
             sig = (
                 kwota,
-                str(row[9]).strip(),
-                str(row[14]).strip() if len(row) > 14 else "",
-                str(row[10]).strip()[:20] if len(row) > 10 else "",
+                str(row[6]).strip(),
+                str(row[11]).strip() if len(row) > 11 else "",
+                str(row[7]).strip()[:20] if len(row) > 7 else "",
             )
             frozen_sigs.add(sig)
 
@@ -1203,26 +1203,25 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None):
 
 def _build_paired_row(existing_row, tx, klucz, uwagi=""):
     """Uzupelnia wiersz arkusza danymi z transakcji bankowej."""
-    row = list(existing_row) + [""] * max(0, 17 - len(existing_row))
-    row[3]  = ""   # raport kasowy — puste dla transakcji bankowych
-    row[6]  = klucz
-    row[7]  = tx["kontrahent"].split("|")[0]
-    row[8]  = tx["kwota"]
-    row[9]  = tx["data_ks"]
-    row[10] = tx["tytul"][:100]
-    row[11] = tx["data_op"]
-    row[12] = tx["rodzaj"]
-    row[13] = tx["waluta"]
-    row[14] = tx["nr_rachunku"]
-    row[15] = _extract_name_from_tx(tx)
-    row[16] = uwagi
+    row = list(existing_row) + [""] * max(0, 14 - len(existing_row))
+    row[3]  = klucz
+    row[4]  = tx["kontrahent"].split("|")[0]
+    row[5]  = tx["kwota"]
+    row[6]  = tx["data_ks"]
+    row[7]  = tx["tytul"][:100]
+    row[8]  = tx["data_op"]
+    row[9]  = tx["rodzaj"]
+    row[10] = tx["waluta"]
+    row[11] = tx["nr_rachunku"]
+    row[12] = _extract_name_from_tx(tx)
+    row[13] = uwagi
     return row
 
 
 def _build_sub_row(tx, klucz):
     """Sub-wiersz: puste A i B, status=2 (zamrozony), dane TX w H-P."""
     return [
-        "", "", "2", "", "", "",
+        "", "", "2",
         klucz,
         tx["kontrahent"].split("|")[0],
         tx["kwota"],
@@ -1252,7 +1251,7 @@ def _build_unmatched_row(tx):
     else:
         klucz = "nieznany_out" if tx["kwota"] < 0 else "nieznany_in"
     return [
-        "", "", "", "", "", "",   # A=nazwa, B=kwota, C=status, D=raport_kasowy, E=adres, F=data_umowy
+        "", "", "",   # A=nazwa, B=kwota, C=status
         klucz,
         tx["kontrahent"].split("|")[0],
         tx["kwota"],
@@ -1326,15 +1325,15 @@ def sync_parowanie(worksheet, transactions):
         row = sections[sep][row_idx]
         if str(row[2]).strip() != "9":
             continue
-        if len(row) <= 9 or not str(row[9]).strip():
+        if len(row) <= 6 or not str(row[6]).strip():
             continue
         try:
-            old_kwota = round(float(re.sub(r"[^\d,.\-]", "", str(row[8])).replace(",", ".")), 2)
+            old_kwota = round(float(re.sub(r"[^\d,.\-]", "", str(row[5])).replace(",", ".")), 2)
         except (ValueError, TypeError):
             continue
-        old_sig = (old_kwota, str(row[9]).strip(),
-                   str(row[14]).strip() if len(row) > 14 else "",
-                   str(row[10]).strip()[:20] if len(row) > 10 else "")
+        old_sig = (old_kwota, str(row[6]).strip(),
+                   str(row[11]).strip() if len(row) > 11 else "",
+                   str(row[7]).strip()[:20] if len(row) > 7 else "")
         for i, tx in enumerate(transactions):
             if _tx_sig(tx) == old_sig:
                 blocked[flat_idx] = i
@@ -1360,17 +1359,17 @@ def sync_parowanie(worksheet, transactions):
             tx_amount = abs(round(tx["kwota"], 2))
             inv_amount = _parse_amount(row[1] if len(row) > 1 else "")
             if flat_idx in name_only or (inv_amount is not None and round(inv_amount, 2) != tx_amount):
-                r[16] = _PURPLE_MARKER
+                r[13] = _PURPLE_MARKER
             sections[sep][row_idx] = r
         else:
             klucz = assign_klucz_ksiegowy(sep, None, row[1] if len(row) > 1 else "", row[0] if row else "")
-            r = list(row) + [""] * max(0, 17 - len(row))
+            r = list(row) + [""] * max(0, 14 - len(row))
             if str(r[2]).strip() == "9":
                 r[2] = "1"
-            r[6] = klucz
-            for col in range(7, 16):
+            r[3] = klucz
+            for col in range(4, 13):
                 r[col] = ""
-            r[16] = _ORANGE_MARKER
+            r[13] = _ORANGE_MARKER
             sections[sep][row_idx] = r
             unmatched_count += 1
 
@@ -1441,12 +1440,12 @@ def sync_parowanie(worksheet, transactions):
     _seen_frozen_sigs = set()
     frozen_nieznane = []
     for r in frozen_backup.get(SEP_NIEZNANE, []):
-        if len(r) > 9 and str(r[9]).strip():
+        if len(r) > 6 and str(r[6]).strip():
             try:
-                _kw = round(float(re.sub(r"[^\d,.\-]", "", str(r[8])).replace(",", ".")), 2)
+                _kw = round(float(re.sub(r"[^\d,.\-]", "", str(r[5])).replace(",", ".")), 2)
             except (ValueError, TypeError):
                 _kw = 0.0
-            _sig = (_kw, str(r[9]).strip(), str(r[14]).strip() if len(r) > 14 else "")
+            _sig = (_kw, str(r[6]).strip(), str(r[11]).strip() if len(r) > 11 else "")
             if _sig in _seen_frozen_sigs:
                 continue
             _seen_frozen_sigs.add(_sig)
@@ -1459,7 +1458,7 @@ def sync_parowanie(worksheet, transactions):
     ]
 
     def _nieznane_sort_key(row):
-        k = str(row[6]).strip().lower() if len(row) > 6 else ""
+        k = str(row[3]).strip().lower() if len(row) > 3 else ""
         if "depo" in k and "pr_in"  in k: return 0
         if "depo" in k and "pr_out" in k: return 1
         if "depo" in k and "kp"     in k: return 2
@@ -1482,19 +1481,19 @@ def sync_parowanie(worksheet, transactions):
     sheet_rows_with_bank = []   # (sig, row) — do diagnostyki
     for sec_rows in sections.values():
         for r in sec_rows:
-            if len(r) > 7 and str(r[7]).strip():   # col H = wyciag_Kontrahent
+            if len(r) > 4 and str(r[4]).strip():   # col E = wyciag_Kontrahent
                 sheet_tx_count += 1
                 try:
-                    kwota_r = float(re.sub(r"[^\d,.\-]", "", str(r[8])).replace(",", ".")) if len(r) > 8 and str(r[8]).strip() else 0.0
+                    kwota_r = float(re.sub(r"[^\d,.\-]", "", str(r[5])).replace(",", ".")) if len(r) > 5 and str(r[5]).strip() else 0.0
                 except (ValueError, TypeError):
                     kwota_r = 0.0
                 if kwota_r:
                     sheet_tx_sum += kwota_r
                 sig = (
                     round(kwota_r, 2),
-                    str(r[9]).strip() if len(r) > 9 else "",
-                    str(r[14]).strip() if len(r) > 14 else "",
-                    str(r[10]).strip()[:30] if len(r) > 10 else "",
+                    str(r[6]).strip() if len(r) > 6 else "",
+                    str(r[11]).strip() if len(r) > 11 else "",
+                    str(r[7]).strip()[:30] if len(r) > 7 else "",
                 )
                 sheet_rows_with_bank.append((sig, r))
 
@@ -1546,9 +1545,9 @@ def sync_parowanie(worksheet, transactions):
             orange_rows.append(row_num)
             clear_updates.append({"range": f"Q{row_num}", "values": [[""]]})
     for row_num in purple_rows:
-        _api(worksheet.format, f"A{row_num}:Q{row_num}", {"backgroundColor": _PURPLE_BG})
+        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _PURPLE_BG})
     for row_num in orange_rows:
-        _api(worksheet.format, f"A{row_num}:Q{row_num}", {"backgroundColor": _ORANGE_BG})
+        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _ORANGE_BG})
     if clear_updates:
         _api(worksheet.batch_update, clear_updates)
 
@@ -1621,7 +1620,7 @@ def _extract_rk_entries(sections):
     kp, kw = [], []
     for sec_rows in sections.values():
         for row in sec_rows:
-            klucz = str(row[6]).strip() if len(row) > 6 else ""
+            klucz = str(row[3]).strip() if len(row) > 3 else ""
             if "_rk_" not in klucz:
                 continue
             col_a = str(row[0]).strip() if row else ""
@@ -1631,9 +1630,9 @@ def _extract_rk_entries(sections):
                 except Exception:
                     return 0.0
             kwota_b = _pq(str(row[1])) if len(row) > 1 and str(row[1]).strip() else 0.0
-            kwota_i = _pq(str(row[8])) if len(row) > 8 and str(row[8]).strip() else 0.0
+            kwota_i = _pq(str(row[5])) if len(row) > 5 and str(row[5]).strip() else 0.0
             kwota   = kwota_b if kwota_b else kwota_i
-            data    = str(row[9]).strip() if len(row) > 9 else ""
+            data    = str(row[6]).strip() if len(row) > 6 else ""
             entry   = (klucz, col_a, kwota, data)
             if   "_rk_kp" in klucz: kp.append(entry)
             elif "_rk_kw" in klucz: kw.append(entry)
@@ -1993,7 +1992,7 @@ def search_sheet_rows(spreadsheet, query_text, sheet_filter=None, tags=None, mod
                 continue
             if row and row[0] == HEADER_ROW[0]:
                 continue
-            padded = row + [""] * max(0, 16 - len(row))
+            padded = row + [""] * max(0, 13 - len(row))
             klucz  = padded[_KLUCZ_IDX].lower()
 
             text_match = bool(q) and any(q in str(cell).lower() for cell in row)
@@ -2075,10 +2074,10 @@ def search_najemca_sheets(spreadsheet, imie, nazwisko, tabs, mode="AND"):
                 continue
             if row[0] == HEADER_ROW[0] or _match_separator(row[0]):
                 continue
-            padded = row + [""] * max(0, 17 - len(row))
+            padded = row + [""] * max(0, 14 - len(row))
             col_a     = _normalize_name_for_filename(padded[0])
-            col_klucz = _normalize_name_for_filename(padded[6])
-            col_wyc   = _normalize_name_for_filename(padded[15])
+            col_klucz = _normalize_name_for_filename(padded[3])
+            col_wyc   = _normalize_name_for_filename(padded[12])
             if _col_hit(col_a) or _col_hit(col_klucz) or _col_hit(col_wyc):
                 results.append({
                     "Zakladka":      tab,
@@ -2783,15 +2782,15 @@ if btn_paruj:
                         rows_e = []
                         for r in extra:
                             try:
-                                kwota_e = float(re.sub(r"[^\d,.\-]", "", str(r[8])).replace(",", ".")) if len(r) > 8 else 0.0
+                                kwota_e = float(re.sub(r"[^\d,.\-]", "", str(r[5])).replace(",", ".")) if len(r) > 5 else 0.0
                             except (ValueError, TypeError):
                                 kwota_e = 0.0
                             rows_e.append({
                                 "Kwota": kwota_e,
-                                "Data KS": r[9] if len(r) > 9 else "",
-                                "Kontrahent": r[7] if len(r) > 7 else "",
-                                "Nr rachunku": r[14] if len(r) > 14 else "",
-                                "Tytuł": str(r[10])[:60] if len(r) > 10 else "",
+                                "Data KS": r[6] if len(r) > 6 else "",
+                                "Kontrahent": r[4] if len(r) > 4 else "",
+                                "Nr rachunku": r[11] if len(r) > 11 else "",
+                                "Tytuł": str(r[7])[:60] if len(r) > 7 else "",
                             })
                         st.dataframe(rows_e, use_container_width=True)
 
@@ -3094,13 +3093,12 @@ if btn_wyswietl:
 
 EX_COL_NAMES = [
     "Nazwa / Plik", "Kwota brutto", "Status",
-    "", "", "",
     "Klucz_Ksiegowy", "wyciag_Kontrahent", "wyciag_Kwota",
     "Data_ksiegowania", "wyciag_Tytul",
     "wyciag_Data_op", "wyciag_Rodzaj", "wyciag_Waluta",
     "wyciag_Nr_rachunku", "wyciag_Imie_Nazwisko", "Uwagi",
 ]
-EX_READONLY = [c for c in EX_COL_NAMES if c not in ("Status", "Kwota brutto", "Uwagi", "")]
+EX_READONLY = [c for c in EX_COL_NAMES if c not in ("Status", "Kwota brutto", "Uwagi")]
 EX_LABELS = {
     SEP_KOSZTOWE: "Faktury kosztowe",
     SEP_SPRZEDAZ: "Faktury sprzedazy najemcom",
@@ -3147,9 +3145,8 @@ def _show_ex():
                 _all_rows.append((sep, row))
 
         if _all_rows:
-            padded = [r + [""] * (17 - len(r)) for _, r in _all_rows]
-            df_all = pd.DataFrame([dict(zip(EX_COL_NAMES, r[:17])) for r in padded])
-            df_all = df_all[[c for c in df_all.columns if c != ""]]  # ukryte kolumny (D,E,F)
+            padded = [r + [""] * (14 - len(r)) for _, r in _all_rows]
+            df_all = pd.DataFrame([dict(zip(EX_COL_NAMES, r[:14])) for r in padded])
             df_all["Status"] = pd.to_numeric(df_all["Status"], errors="coerce").fillna(0).astype(int)
             df_all.insert(1, "Link", df_all["Nazwa / Plik"].map(
                 lambda n: _ex_links.get(str(n), "")
