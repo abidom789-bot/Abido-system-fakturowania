@@ -2977,21 +2977,19 @@ if btn_paruj:
                 if pomaranczowe:
                     parts.append(f"🟠 Pomarańczowe (brak pary): {pomaranczowe}")
                 parts.append(f"Niesparowane z wyciągu: {niesparowane}")
-                st.success("Gotowe! " + " | ".join(parts))
+                st.toast("✅ Gotowe! " + " | ".join(parts))
 
                 # Dwa osobne sprawdzenia weryfikacji
                 ok_count = (tx_total == sheet_tx_count)
                 ok_sum   = (abs(tx_sum - sheet_tx_sum) < 0.02)
                 count_icon = "✅" if ok_count else "⚠️"
                 sum_icon   = "✅" if ok_sum   else "⚠️"
-                st.info(
-                    f"{count_icon} Liczba pozycji (wg wyciag_Kontrahent): "
-                    f"Plik {tx_total} / Arkusz {sheet_tx_count}"
-                    f"{'  ✓' if ok_count else f'  ← RÓŻNICA: {sheet_tx_count - tx_total:+d}'}"
+                st.toast(
+                    f"{count_icon} Plik {tx_total} poz. / Arkusz {sheet_tx_count} poz."
+                    f"{'  ✓' if ok_count else f'  RÓŻNICA: {sheet_tx_count - tx_total:+d}'}"
                     f"   |   "
-                    f"{sum_icon} Suma kwot (wg wyciag_Kwota): "
-                    f"Plik {tx_sum:,.2f} PLN / Arkusz {sheet_tx_sum:,.2f} PLN"
-                    f"{'  ✓' if ok_sum else f'  ← RÓŻNICA: {sheet_tx_sum - tx_sum:+.2f} PLN'}"
+                    f"{sum_icon} Plik {tx_sum:,.2f} PLN / Arkusz {sheet_tx_sum:,.2f} PLN"
+                    f"{'  ✓' if ok_sum else f'  RÓŻNICA: {sheet_tx_sum - tx_sum:+.2f} PLN'}"
                 )
 
                 # Diagnostyka rozbieznosci
