@@ -860,6 +860,7 @@ _ORANGE_BG     = {"red": 1.0,  "green": 0.88, "blue": 0.70}
 _KP_BG         = {"red": 0.82, "green": 0.96, "blue": 0.77}   # kasa przyjela (gotowka wplyn)
 _KW_BG         = {"red": 0.97, "green": 0.82, "blue": 0.82}   # kasa wyplacila (gotowka wydat)
 _MULTI_BG      = {"red": 0.91, "green": 0.88, "blue": 0.98}   # multi-parowanie (1 faktura → kilka TX)
+_FROZEN3_BG    = {"red": 0.78, "green": 0.78, "blue": 0.78}   # status=3 beton (szary)
 
 SEP_COLORS = {
     SEP_KOSZTOWE: {"red": 0.90, "green": 0.22, "blue": 0.22},  # czerwony
@@ -936,6 +937,8 @@ def rebuild_sheet(worksheet, sections):
         _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _KP_BG})
     for row_num in kw_rows:
         _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _KW_BG})
+    for row_num in frozen3_rows:
+        _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _FROZEN3_BG})
     # Jawnie ustaw format liczbowy dla wyciag_Kwota (kol F) — bez tego kol. dziedziczy
     # format DATE po starej kolumnie i liczby wyswietlaja sie jako daty.
     _api(worksheet.format, "F2:F500", {"numberFormat": {"type": "NUMBER", "pattern": "0.00"}})
@@ -1498,7 +1501,8 @@ def sync_parowanie(worksheet, transactions):
             continue
         frozen, active = [], []
         seen_sub_sigs = set()
-        last_main_frozen = False   # czy ostatni glowny wiersz byl zamrozony?
+        last_main_frozen  = False   # ostatni glowny to status=2 (frozen)
+        last_main_status3 = False   # ostatni glowny to status=3 (beton)
         for row in sections[sep]:
             if sep == SEP_NIEZNANE:
                 # NIEZNANE nie ma sub-wierszy — stara prosta logika
@@ -1509,23 +1513,36 @@ def sync_parowanie(worksheet, transactions):
                 continue
             is_main = bool(row[0] if row else "")
             if is_main:
-                if len(row) > 2 and str(row[2]).strip() == "2":
+                status_c = str(row[2]).strip() if len(row) > 2 else ""
+                if status_c == "2":
                     frozen.append(row)
-                    last_main_frozen = True
+                    last_main_frozen  = True
+                    last_main_status3 = False
                 else:
                     active.append(row)
-                    last_main_frozen = False
+                    last_main_frozen  = False
+                    last_main_status3 = (status_c == "3")
             else:
                 # Sub-wiersz (A='')
                 if last_main_frozen:
-                    # Rodzic zamrozony → zachowaj, deduplikuj
+                    # Rodzic status=2 → zachowaj sub-wiersz w frozen, deduplikuj
                     sig = _sub_row_sig(row)
                     if sig not in seen_sub_sigs:
                         seen_sub_sigs.add(sig)
                         frozen.append(row)
-                # Rodzic aktywny → wyrzuc; pass 6 odtworzy sub-wiersz w wlasciwej pozycji
+                elif last_main_status3:
+                    # Rodzic status=3 (beton) → zachowaj sub-wiersz w active bez zmian
+                    active.append(row)
+                # else: Rodzic aktywny → wyrzuc; pass 6 odtworzy sub-wiersz
         frozen_backup[sep] = frozen
         sections[sep] = active
+
+    # Zachowaj wiersze status=3 z NIEZNANE (beda stracone gdy sekcja zostanie
+    # zbudowana od nowa z frozen_nieznane + unmatched_rows).
+    _frozen3_nieznane = [
+        (i, r) for i, r in enumerate(sections[SEP_NIEZNANE])
+        if str(r[2] if len(r) > 2 else "").strip() == "3"
+    ]
 
     # ── Kandydaci do parowania ─────────────────────────────────────────────────
     _DIRECTION = {SEP_KOSZTOWE: -1, SEP_SPRZEDAZ: 1, SEP_WLASC: -1}
@@ -1743,6 +1760,10 @@ def sync_parowanie(worksheet, transactions):
         frozen_nieznane + unmatched_rows,
         key=_nieznane_sort_key,
     )
+
+    # Przywroc wiersze status=3 z NIEZNANE na ich oryginalne pozycje (zabetonowane)
+    for orig_pos, row in sorted(_frozen3_nieznane, key=lambda x: x[0]):
+        sections[SEP_NIEZNANE].insert(min(orig_pos, len(sections[SEP_NIEZNANE])), row)
 
     # Weryfikacja: policz i zsumuj wiersze z danymi wyciagu (col H niepusta)
     # Obejmuje: sparowane (w sekcjach) + niesparowane (SEP_NIEZNANE) + zamrozone (status=2)
