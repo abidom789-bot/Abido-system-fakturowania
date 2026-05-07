@@ -1229,12 +1229,14 @@ def assign_klucz_ksiegowy(section, tx, amount_b_str, filename=""):
             val = float(str(amount_b_str).replace(",", "."))
         except (ValueError, TypeError):
             val = -1
-        return "kos_rk_kp" if val > 0 else "kos_rk_kw"
+        if val > 0:
+            return "prz_pr_in" if section == SEP_KOSZTOWE else "kos_rk_kp"
+        return "kos_rk_kw"
 
     kwota = tx["kwota"]
     if section == SEP_KOSZTOWE:
         if kwota > 0:
-            return "kos_pr_in"
+            return "prz_pr_in"
         return "kos_med_pr_out" if _is_media(tx) else "kos_pr_out"
     if section == SEP_SPRZEDAZ:
         return "prz_naj_pr_in" if kwota > 0 else "prz_naj_rk_kp"
@@ -1578,7 +1580,9 @@ def sync_parowanie(worksheet, transactions):
                 continue   # sub-wiersz (puste A) — nie jest kandydatem
             if str(row[2]).strip() in ("1", "9"):
                 amount = _parse_amount(row[1] if len(row) > 1 else "")
-                candidates.append((len(candidates), sep, i, row[0], amount, _DIRECTION[sep]))
+                # Refaktura/zwrot w KOSZTOWE: dodatnia kwota faktury → kierunek +1 (wpływ)
+                direction = 1 if (sep == SEP_KOSZTOWE and amount is not None and amount > 0) else _DIRECTION[sep]
+                candidates.append((len(candidates), sep, i, row[0], amount, direction))
 
     # TX juz uzyte przez zamrozone wiersze — skanujemy frozen_backup
     real_pre_used = _frozen_tx_pre_used(frozen_backup, transactions)
