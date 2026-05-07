@@ -30,6 +30,18 @@ def _api(fn, *args, **kwargs):
                 raise
 
 
+def _norm_date(s):
+    """Normalizuje date do formatu DD-MM-YYYY (obsluguje format GSheets '2026-03-03 00:00:00')."""
+    s = str(s or "").strip()
+    m = re.match(r'^(\d{4})-(\d{2})-(\d{2})', s)
+    if m:
+        return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+    m = re.match(r'^(\d{2})/(\d{2})/(\d{4})', s)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return s
+
+
 def _batch_format_rows(worksheet, row_formats):
     """Wysyła wszystkie formatowania wierszy w jednym API call (batchUpdate).
 
@@ -1294,7 +1306,7 @@ def _frozen_tx_pre_used(sections, transactions, statuses=("2",)):
                 continue
             sig = (
                 kwota,
-                str(row[6]).strip(),
+                _norm_date(row[6]),
                 str(row[11]).strip() if len(row) > 11 else "",
                 str(row[7]).strip()[:20] if len(row) > 7 else "",
             )
@@ -1307,7 +1319,7 @@ def _frozen_tx_pre_used(sections, transactions, statuses=("2",)):
     for i, tx in enumerate(transactions):
         sig = (
             round(tx["kwota"], 2),
-            str(tx["data_ks"]).strip(),
+            _norm_date(tx["data_ks"]),
             str(tx["nr_rachunku"]).strip(),
             str(tx["tytul"]).strip()[:20],
         )
@@ -1607,8 +1619,13 @@ def sync_parowanie(worksheet, transactions):
                 continue   # sub-wiersz (puste A) — nie jest kandydatem
             if str(row[2]).strip() in ("1", "9"):
                 amount = _parse_amount(row[1] if len(row) > 1 else "")
-                # Refaktura/zwrot w KOSZTOWE: dodatnia kwota faktury → kierunek +1 (wpływ)
-                direction = 1 if (sep == SEP_KOSZTOWE and amount is not None and amount > 0) else _DIRECTION[sep]
+                # Refaktura/zwrot w KOSZTOWE: kwota faktury ze znakiem (+) → kierunek +1 (wpływ)
+                # Uwaga: _parse_amount zwraca abs() — sprawdzamy znak z surowej wartosci
+                try:
+                    b_signed = float(re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", "."))
+                except (ValueError, TypeError):
+                    b_signed = -1
+                direction = 1 if (sep == SEP_KOSZTOWE and b_signed > 0) else _DIRECTION[sep]
                 candidates.append((len(candidates), sep, i, row[0], amount, direction))
 
     # TX juz uzyte przez zamrozone wiersze — skanujemy frozen_backup
@@ -1789,18 +1806,6 @@ def sync_parowanie(worksheet, transactions):
 
     # Weryfikacja: policz i zsumuj wiersze z danymi wyciagu (col H niepusta)
     # Obejmuje: sparowane (w sekcjach) + niesparowane (SEP_NIEZNANE) + zamrozone (status=2)
-
-    def _norm_date(s):
-        """Normalizuje date do formatu DD-MM-YYYY bez wzgledu na to jak Google Sheets
-        ja zapisal (np. '2026-04-15 00:00:00' lub '15/04/2026' → '15-04-2026')."""
-        s = str(s or "").strip()
-        m = re.match(r'^(\d{4})-(\d{2})-(\d{2})', s)
-        if m:
-            return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
-        m = re.match(r'^(\d{2})/(\d{2})/(\d{4})', s)
-        if m:
-            return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-        return s
 
     sheet_tx_count = 0
     sheet_tx_sum   = 0.0
