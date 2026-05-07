@@ -1129,14 +1129,15 @@ def _frozen_tx_pre_used(sections, transactions):
     return pre_used
 
 
-def pair_transactions(candidates, transactions, pre_used=None, blocked=None):
+def pair_transactions(candidates, transactions, pre_used=None, blocked=None, multi_eligible=None):
     """
-    Paruje kandydatow (wiersze arkusza) z transakcjami bankowymi w 5 przebiegach.
+    Paruje kandydatow (wiersze arkusza) z transakcjami bankowymi w 6 przebiegach.
     candidates: lista (idx, name, amount_float, direction)
                 direction: 1 = wpływ (sprzedaz), -1 = wydatek (kosztowe, wlasciciele)
     transactions: lista slownikow transakcji
     pre_used: zbior indeksow transakcji juz uzytych (status=2)
     blocked:  slownik {cand_idx: tx_idx} — kandydat NIE moze wrocic do starego TX (status=9)
+    multi_eligible: zbior flat_idx dozwolonych w przejsciu 6 (tylko SPRZEDAZ i WLASC)
     Zwraca: (matched, name_only, used_tx)
       matched:   {cand_idx: tx_idx} — wszystkie udane parowania
       name_only: set(cand_idx)      — sparowane po nazwie bez zgodnosci kwoty (fioletowe)
@@ -1231,10 +1232,13 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None):
         if len(pool) == 1:
             assign(idx, pool[0])
 
-    # Przebieg 6: dla juz sparowanych kandydatow — poszukaj dodatkowych TX z tym samym
-    # nazwiskiem (nieuzytych). Trafi tam np. czesc platnosci za media od tego samego najemcy.
+    # Przebieg 6: dla juz sparowanych kandydatow z SPRZEDAZ/WLASC — poszukaj dodatkowych
+    # TX z tym samym nazwiskiem. Trafi tam np. platnosc za media od tego samego najemcy.
+    # KOSZTOWE wykluczone — inaczej faktura "Mafika" pochlanialaby inne TX Mafiki.
     for idx, name, amount, direction in candidates:
         if idx not in matched:
+            continue
+        if multi_eligible is not None and idx not in multi_eligible:
             continue
         tokens = _extract_name_tokens(name)
         if not tokens:
@@ -1409,7 +1413,8 @@ def sync_parowanie(worksheet, transactions):
                 break
 
     flat = [(c[0], c[3], c[4], c[5]) for c in candidates]
-    matched, name_only, extras, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked)
+    multi_eligible = {c[0] for c in candidates if c[1] in (SEP_SPRZEDAZ, SEP_WLASC)}
+    matched, name_only, extras, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked, multi_eligible=multi_eligible)
     # Bankomat TX (nie-zamrozone) ida do SEP_NIEZNANE — usun z used_tx
     used_tx -= bankomat_excluded
 
