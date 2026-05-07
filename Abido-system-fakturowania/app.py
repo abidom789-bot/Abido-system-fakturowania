@@ -1312,11 +1312,28 @@ def sync_parowanie(worksheet, transactions):
     # ── KROK 0: Snapshot status=2 ──────────────────────────────────────────────
     # Fizycznie wyjmij zamrozone wiersze ze wszystkich sekcji zanim cokolwiek
     # zostanie dotkniete. Zadna petla parowania ich nie zobaczy.
+    # Sub-wiersze (A='') deduplikujemy po sygnaturze TX — zapobiega narastaniu
+    # kopii z kolejnych uruchomien parowania.
+    def _sub_row_sig(r):
+        try:
+            kw = round(float(re.sub(r"[^\d,.\-]", "", str(r[5])).replace(",", ".")), 2)
+        except (ValueError, TypeError):
+            kw = 0.0
+        return (kw, str(r[6]).strip() if len(r) > 6 else "",
+                str(r[11]).strip() if len(r) > 11 else "")
+
     frozen_backup = {}
     for sep in SECTION_ORDER:
         frozen, active = [], []
+        seen_sub_sigs = set()
         for row in sections[sep]:
             if len(row) > 2 and str(row[2]).strip() == "2":
+                is_sub = not (row[0] if row else "")
+                if is_sub:
+                    sig = _sub_row_sig(row)
+                    if sig in seen_sub_sigs:
+                        continue  # duplikat sub-wiersza — pominij
+                    seen_sub_sigs.add(sig)
                 frozen.append(row)
             else:
                 active.append(row)
