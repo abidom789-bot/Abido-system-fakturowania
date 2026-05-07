@@ -978,48 +978,52 @@ def apply_sync_logic(existing_rows, new_data, has_address=False, default_status=
     return result, len(verified), len(new_data) - len(verified)
 
 
-def sort_inne_rk(worksheet):
+def sort_inne_rk_nieznane(worksheet):
     """
-    Sortuje sekcje SEP_INNE_RK po dacie (kol G) potem nazwie (kol A).
-    Wiersze ze statusem=3 sa kotwicami — pozostaja na swoich pozycjach,
-    pozostale wiersze sortuja sie wokol nich.
-    Zwraca liczbe posortowanych wierszy (bez kotwic).
+    Sortuje SEP_INNE_RK i SEP_NIEZNANE.
+    Status=3 to kotwice — pozostaja na swoich pozycjach, reszta sortuje sie wokol nich.
+    Zwraca (n_inne_rk, n_nieznane) — liczby posortowanych wierszy bez kotwic.
     """
     sections = read_all_sections(worksheet)
-    rows = sections[SEP_INNE_RK]
 
-    def _date_sort_key(row):
-        klucz = str(row[3]).strip().lower() if len(row) > 3 else ""
-        if "depo" in klucz and ("pr_in" in klucz or "_in" in klucz):
-            priority = 0   # depo otrzymane
-        elif "depo" in klucz:
-            priority = 1   # depo wydane
-        elif "bankomat" in klucz and "_kp" in klucz:
-            priority = 2   # wpłata bankomatowa
-        elif "bankomat" in klucz and "_kw" in klucz:
-            priority = 3   # wypłata bankomatowa
-        else:
-            priority = 4   # pozostałe
+    def _with_anchors(rows, key_fn):
+        anchors     = [(i, r) for i, r in enumerate(rows)
+                       if str(r[2] if len(r) > 2 else "").strip() == "3"]
+        non_anchors = [r for r in rows
+                       if str(r[2] if len(r) > 2 else "").strip() != "3"]
+        result = sorted(non_anchors, key=key_fn)
+        for pos, row in sorted(anchors, key=lambda x: x[0]):
+            result.insert(pos, row)
+        return result, len(non_anchors)
+
+    def _date_key(row):
         date_s = str(row[6]).strip() if len(row) > 6 else ""
         m = re.match(r'^(\d{4}-\d{2}-\d{2})', date_s)
-        date_key = m.group(1) if m else ("9999" if not date_s else date_s)
-        name_key = str(row[0]).strip().lower() if row else ""
-        return (priority, date_key, name_key)
+        return m.group(1) if m else ("9999" if not date_s else date_s)
 
-    anchors    = [(i, row) for i, row in enumerate(rows)
-                  if str(row[2] if len(row) > 2 else "").strip() == "3"]
-    non_anchors = [row for row in rows
-                   if str(row[2] if len(row) > 2 else "").strip() != "3"]
-    non_anchors_sorted = sorted(non_anchors, key=_date_sort_key)
+    def _inne_rk_key(row):
+        k = str(row[3]).strip().lower() if len(row) > 3 else ""
+        if   "depo" in k and ("pr_in" in k or "_in" in k): p = 0  # depo otrzymane
+        elif "depo" in k:                                   p = 1  # depo wydane
+        elif "bankomat" in k and "_kp" in k:               p = 2  # wpłata bankomatowa
+        elif "bankomat" in k and "_kw" in k:               p = 3  # wypłata bankomatowa
+        else:                                               p = 4  # pozostałe
+        return (p, _date_key(row), str(row[0]).strip().lower() if row else "")
 
-    # Re-wstaw kotwice na swoje oryginalne pozycje
-    result = list(non_anchors_sorted)
-    for pos, row in sorted(anchors, key=lambda x: x[0]):
-        result.insert(pos, row)
+    def _nieznane_key(row):
+        k = str(row[3]).strip().lower() if len(row) > 3 else ""
+        if   "depo" in k and "pr_in"  in k:               p = 0  # depo pr_in
+        elif "depo" in k and "pr_out" in k:               p = 1  # depo pr_out
+        elif "depo" in k:                                  p = 2  # inne depo
+        elif "_in"  in k or "_kp" in k:                   p = 3  # wszystkie wpływy
+        elif "_out" in k or "_kw" in k:                   p = 4  # wszystkie wypływy
+        else:                                              p = 5  # brak klucza
+        return (p, _date_key(row))
 
-    sections[SEP_INNE_RK] = result
+    sections[SEP_INNE_RK],  n_inne  = _with_anchors(sections[SEP_INNE_RK],  _inne_rk_key)
+    sections[SEP_NIEZNANE], n_niezn = _with_anchors(sections[SEP_NIEZNANE], _nieznane_key)
     rebuild_sheet(worksheet, sections)
-    return len(non_anchors)
+    return n_inne, n_niezn
 
 
 def sync_kosztowe(worksheet, files_data):
@@ -3093,7 +3097,7 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
                 use_container_width=True,
             )
             btn_sortuj_inne_rk = st.button(
-                "Sortuj Inne RK",
+                "Sortuj Inne RK oraz Nieznane",
                 use_container_width=True,
             )
 
@@ -3109,9 +3113,12 @@ if btn_sortuj_inne_rk:
             creds  = get_credentials()
             client = gspread.authorize(creds)
             worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(name)
-            with st.spinner("Sortuję Inne RK..."):
-                n = sort_inne_rk(worksheet)
-            st.success(f"Posortowano {n} wierszy w sekcji Inne RK (kotwice status=3 zachowane).")
+            with st.spinner("Sortuję Inne RK oraz Nieznane..."):
+                n_inne, n_niezn = sort_inne_rk_nieznane(worksheet)
+            st.success(
+                f"Posortowano: Inne RK — {n_inne} wierszy, "
+                f"Nieznane — {n_niezn} wierszy (kotwice status=3 zachowane)."
+            )
         except gspread.exceptions.WorksheetNotFound:
             st.error(f"Arkusz '{name}' nie istnieje.")
         except Exception as e:
