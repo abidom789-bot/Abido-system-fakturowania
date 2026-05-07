@@ -1521,6 +1521,41 @@ def _build_unmatched_row(tx):
     ]
 
 
+def add_section_summary(worksheet):
+    """Dodaje tabelkę podsumowania sum kol. B per sekcja na dole arkusza.
+    Parowanie i sortowanie usuwają ją automatycznie (rebuild_sheet wywołuje clear()).
+    """
+    sections = read_all_sections(worksheet)
+    sums = {}
+    for sep in SECTION_ORDER:
+        total = 0.0
+        for row in sections[sep]:
+            if row and str(row[0]).strip():   # tylko główne wiersze (col A niepuste)
+                try:
+                    total += float(re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", "."))
+                except (ValueError, TypeError):
+                    pass
+        sums[sep] = round(total, 2)
+
+    all_vals = _api(worksheet.get_all_values)
+    last_row = len(all_vals)
+    while last_row > 0 and not any(c for c in all_vals[last_row - 1]):
+        last_row -= 1
+
+    start = last_row + 2
+    summary = [["Segment nazwa", "Kwota kolumny B segmentu"]] + [[sep, sums[sep]] for sep in SECTION_ORDER]
+    _api(worksheet.update, f"A{start}", summary, value_input_option="USER_ENTERED")
+
+    row_fmts = [(start, {"backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},
+                         "textFormat": {"bold": True}})]
+    for i, sep in enumerate(SECTION_ORDER):
+        row_fmts.append((start + 1 + i, {
+            "backgroundColor": SEP_COLORS[sep],
+            "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
+        }))
+    _batch_format_rows(worksheet, row_fmts)
+
+
 def sync_parowanie(worksheet, transactions):
     """
     Paruje wiersze ze statusem 1 z transakcjami bankowymi.
@@ -3186,6 +3221,10 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
                 "Sortuj Inne RK oraz Nieznane",
                 use_container_width=True,
             )
+            btn_podsumowanie = st.button(
+                "Dodaj podsumowanie segmentów",
+                use_container_width=True,
+            )
 
 # ----------------------------------------------------------------
 # AKCJA: Sortuj Inne RK
@@ -3205,6 +3244,26 @@ if btn_sortuj_inne_rk:
                 f"Posortowano: Inne RK — {n_inne} wierszy, "
                 f"Nieznane — {n_niezn} wierszy (kotwice status=3 zachowane)."
             )
+        except gspread.exceptions.WorksheetNotFound:
+            st.error(f"Arkusz '{name}' nie istnieje.")
+        except Exception as e:
+            st.error(f"Wystąpił błąd: {e}")
+
+# ----------------------------------------------------------------
+# AKCJA: Dodaj podsumowanie segmentów
+# ----------------------------------------------------------------
+if btn_podsumowanie:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds  = get_credentials()
+            client = gspread.authorize(creds)
+            worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(name)
+            with st.spinner("Dodaję podsumowanie..."):
+                add_section_summary(worksheet)
+            st.success("Podsumowanie segmentów dodane na dole arkusza.")
         except gspread.exceptions.WorksheetNotFound:
             st.error(f"Arkusz '{name}' nie istnieje.")
         except Exception as e:
