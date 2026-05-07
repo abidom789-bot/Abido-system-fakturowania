@@ -1847,9 +1847,15 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         - A1 przed wstawieniem = stary stan kasy wpisany ręcznie (np. 78 112,40)
         - Ten stan staje się wierszem zamknięcia pod blokiem (np. A29 = 78 112,40)
         - A1 = 78 112,40 + bilans_042026
-    • Przy ODŚWIEŻENIU (miesiąc już jest w arkuszu):
+    • Przy ODŚWIEŻENIU najnowszego miesiąca (blok na górze):
         - Stary stan kasy odczytywany z wiersza zamknięcia poniżej separatora
         - A1 = stary_stan + nowy_bilans_biezacego_miesiaca
+    • Przy ODŚWIEŻENIU starszego miesiąca (bloki nowsze leżą powyżej):
+        - Liczymy delta = nowy_bilans - stary_bilans (sprzed odświeżenia)
+        - A1 += delta (stan kasy najnowszego miesiąca przesuwa się o deltę)
+        - Złote wiersze zamknięcia wszystkich nowszych bloków += delta
+          (każdy z nich przechowuje stan kasy końca poprzedniego okresu —
+           muszą być skorygowane, żeby łańcuch sum był spójny)
     • Przy DODANIU kolejnego miesiąca (052026 nad 042026):
         - Obecna wartość A1 (= 67 882,72 = koniec kwietnia) staje się wierszem
           zamknięcia pod nowym blokiem
@@ -1897,6 +1903,11 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
                 end_row = i + 1   # awaryjnie (brak separatora)
                 break
 
+    # Zmienne do kaskadowej aktualizacji złotych wierszy przy odświeżeniu starszego miesiąca
+    is_newest     = True   # True gdy odświeżany blok jest najnowszym (góra arkusza)
+    old_bilans    = 0.0    # bilans bloku sprzed odświeżenia (do wyliczenia delta)
+    newer_closing = []     # lista (1-based row, old_value) złotych wierszy nowszych bloków
+
     if start_row is None:
         # ── Nowy miesiąc ─────────────────────────────────────────
         # Obecna A1 = poprzedni stan kasy (stary system lub poprzedni miesiąc)
@@ -1913,6 +1924,32 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
                  {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
     else:
         # ── Odświeżenie istniejącego bloku ───────────────────────
+        # Sprawdź czy to najnowszy blok (brak innych markerów powyżej)
+        is_newest = not any(
+            re.match(r'^=== \d{6} ===$', str(r[0]).strip() if r else "")
+            for r in all_vals[:start_row - 1]
+        )
+
+        # Stary bilans z nagłówka bloku (kolumna D = index 3), przed usunięciem
+        if start_row < len(all_vals):
+            old_bilans = _parse_num(all_vals[start_row][3])
+
+        # Złote wiersze zamknięcia nowszych bloków — zbieramy przed modyfikacją arkusza
+        if not is_newest:
+            j = 0
+            while j < start_row - 1:
+                val = str(all_vals[j][0]).strip() if all_vals[j] else ""
+                if re.match(r'^=== \d{6} ===$', val):
+                    k = j + 1
+                    while k < start_row - 1:
+                        if not any(str(c).strip() for c in all_vals[k]):
+                            cr = k + 2  # 1-based row number złotego wiersza
+                            if k + 1 < len(all_vals):
+                                newer_closing.append((cr, _parse_num(all_vals[k + 1][0])))
+                            break
+                        k += 1
+                j += 1
+
         # Stary stan kasy = wiersz zamknięcia poniżej separatora
         old_base = 0.0
         if sep_idx is not None and sep_idx + 1 < len(all_vals):
@@ -1933,7 +1970,17 @@ def refresh_kp_kw(spreadsheet, subfolder_name, sections):
         _api(ws.insert_rows, block, row=start_row)
 
     # ── A1 = stan kasy bieżącego miesiąca ────────────────────────
-    stan_net = round(old_base + bilans_current, 2)
+    # Przy odświeżeniu starszego miesiąca: A1 i złote wiersze nowszych bloków
+    # przesuwamy o deltę — nie tracimy bilansu miesięcy leżących powyżej.
+    if start_row is not None and not is_newest:
+        delta    = round(bilans_current - old_bilans, 2)
+        stan_net = round(_parse_num(all_vals[0][0]) + delta, 2)
+        for cr, old_val in newer_closing:
+            _api(ws.update, f"A{cr}", [[round(old_val + delta, 2)]])
+            _api(ws.format, f"A{cr}:G{cr}",
+                 {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
+    else:
+        stan_net = round(old_base + bilans_current, 2)
     _api(ws.update, "A1:G1", [[stan_net, "", "", "", "", "", ""]])
     _api(ws.format, "A1", {"backgroundColor": _KPKW_STAN_BG, "textFormat": {"bold": True}})
 
