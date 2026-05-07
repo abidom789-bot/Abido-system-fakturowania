@@ -1655,46 +1655,10 @@ def sync_parowanie(worksheet, transactions):
                 for i, sr in enumerate(sub_rows_list):
                     sections[sep].insert(row_idx + 1 + i, sr)
 
-    # ── Dodatkowe TX dla zamrozonych wierszy pasujace po nazwie ───────────────
-    # Skanujemy frozen_backup (nie sections — tam juz ich nie ma).
-    # Sub-wiersze doczelane SA do sekcji aktywnych (dolaczone na koniec sekcji
-    # razem z frozen rows przy scalaniu ponizej).
-    frozen_sub_rows = {sep: {} for sep in [SEP_SPRZEDAZ, SEP_WLASC]}
-    for sep in [SEP_SPRZEDAZ, SEP_WLASC]:
-        for row_idx, row in enumerate(frozen_backup[sep]):
-            if not (row[0] if row else ""):
-                continue
-            tokens = _extract_name_tokens(row[0])
-            if not tokens:
-                continue
-            direction = _DIRECTION[sep]
-            free_hits = [
-                i for i, tx in enumerate(transactions)
-                if i not in used_tx
-                and i not in bankomat_indices
-                and tx["kwota"] * direction > 0
-                and (_search_token(tx, tokens[-1])
-                     or (len(tokens) > 1 and _search_token(tx, tokens[0])))
-            ]
-            if free_hits:
-                sub_list = []
-                for tx_i in free_hits:
-                    tx = transactions[tx_i]
-                    klucz = assign_klucz_ksiegowy(sep, tx, row[1] if len(row) > 1 else "", row[0])
-                    sub_list.append(_build_sub_row(tx, klucz))
-                    used_tx.add(tx_i)
-                frozen_sub_rows[sep][row_idx] = sub_list
-
     # ── KROK N: Przywroc zamrozone wiersze do sekcji ──────────────────────────
-    # Frozen rows SA na poczatku sekcji, aktywne po nich.
-    # Dla SEP_SPRZEDAZ i SEP_WLASC: po kazdym frozen row wstawiamy jego sub-wiersze.
+    # Wiersze status=2 SA nietykalane — nie dostaja nowych sub-wierszy.
     for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
-        merged_frozen = []
-        for row_idx, row in enumerate(frozen_backup[sep]):
-            merged_frozen.append(row)
-            if sep in frozen_sub_rows and row_idx in frozen_sub_rows[sep]:
-                merged_frozen.extend(frozen_sub_rows[sep][row_idx])
-        sections[sep] = merged_frozen + sections[sep]
+        sections[sep] = list(frozen_backup[sep]) + sections[sep]
 
     # ── SEP_NIEZNANE: zamrozone z backupu + niesparowane ─────────────────────
     # Deduplikuj po sygnaturze TX (na wypadek gdyby poprzedni bug zostawil kopie)
