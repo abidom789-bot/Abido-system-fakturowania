@@ -55,6 +55,7 @@ HEADER_ROW = [
 SEP_KOSZTOWE = "--- FAKTURY KOSZTOWE ---"
 SEP_WLASC    = "--- FAKTURY WLASCICIELE I SPOLDZIELNIE ---"
 SEP_SPRZEDAZ = "--- FAKTURY SPRZEDAZY NAJEMCOM ---"
+SEP_INNE_RK  = "--- INNE RAPORTY KASOWE ---"
 SEP_NIEZNANE = "--- NIEZNANE / NIESPAROWANE Z WYCIAGU ---"
 
 LISTY_OPERACJI_FOLDER_NAME = "Listy_operacji_abido"
@@ -685,7 +686,7 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name, credentials=
     return results
 
 
-SECTION_ORDER = [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC, SEP_NIEZNANE]
+SECTION_ORDER = [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC, SEP_INNE_RK, SEP_NIEZNANE]
 
 
 def get_or_create_worksheet(spreadsheet, sheet_name):
@@ -780,6 +781,7 @@ SEP_COLORS = {
     SEP_KOSZTOWE: {"red": 0.90, "green": 0.22, "blue": 0.22},  # czerwony
     SEP_SPRZEDAZ: {"red": 0.18, "green": 0.65, "blue": 0.32},  # zielony
     SEP_WLASC:    {"red": 0.95, "green": 0.55, "blue": 0.10},  # pomaranczowy
+    SEP_INNE_RK:  {"red": 0.18, "green": 0.55, "blue": 0.65},  # ciemny turkus
     SEP_NIEZNANE: {"red": 0.50, "green": 0.50, "blue": 0.50},  # szary
 }
 
@@ -1347,6 +1349,9 @@ def sync_parowanie(worksheet, transactions):
 
     frozen_backup = {}
     for sep in SECTION_ORDER:
+        if sep == SEP_INNE_RK:
+            frozen_backup[sep] = []  # INNE_RK: sekcja nienaruszona, parowanie jej nie dotyka
+            continue
         frozen, active = [], []
         seen_sub_sigs = set()
         last_main_frozen = False   # czy ostatni glowny wiersz byl zamrozony?
@@ -1637,6 +1642,8 @@ def sync_parowanie(worksheet, transactions):
             if not (len(r) > 2 and str(r[2]).strip() == "2" and (r[0] if r else ""))
         }
         for _sec in SECTION_ORDER:
+            if _sec == SEP_INNE_RK:
+                continue
             sections[_sec] = [r for r in sections[_sec] if id(r) not in _extra_ids]
 
     rebuild_sheet(worksheet, sections)
@@ -2801,6 +2808,64 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
     def _dialog_podglad_kp_kw(html):
         st.markdown(html, unsafe_allow_html=True)
 
+    @st.dialog("Wynik parowania", width="large")
+    def _dialog_wynik_parowania(data):
+        sparowane   = data["sparowane"]
+        niesparowane = data["niesparowane"]
+        fioletowe   = data["fioletowe"]
+        pomaranczowe = data["pomaranczowe"]
+        tx_total    = data["tx_total"]
+        tx_sum      = data["tx_sum"]
+        sheet_tx_count = data["sheet_tx_count"]
+        sheet_tx_sum   = data["sheet_tx_sum"]
+        diff_info   = data["diff_info"]
+
+        parts = [f"**Sparowano: {sparowane}**"]
+        if fioletowe:
+            parts.append(f"🟣 Fioletowe (niezgodna kwota): {fioletowe}")
+        if pomaranczowe:
+            parts.append(f"🟠 Pomarańczowe (brak pary): {pomaranczowe}")
+        parts.append(f"Niesparowane z wyciągu: {niesparowane}")
+        st.success(" | ".join(parts))
+
+        ok_count = (tx_total == sheet_tx_count)
+        ok_sum   = (abs(tx_sum - sheet_tx_sum) < 0.02)
+        count_icon = "✅" if ok_count else "⚠️"
+        sum_icon   = "✅" if ok_sum   else "⚠️"
+        st.info(
+            f"{count_icon} Pozycje: Plik {tx_total} / Arkusz {sheet_tx_count}"
+            f"{'  ✓' if ok_count else f'  ← RÓŻNICA: {sheet_tx_count - tx_total:+d}'}"
+            f"   |   "
+            f"{sum_icon} Kwoty: Plik {tx_sum:,.2f} PLN / Arkusz {sheet_tx_sum:,.2f} PLN"
+            f"{'  ✓' if ok_sum else f'  ← RÓŻNICA: {sheet_tx_sum - tx_sum:+.2f} PLN'}"
+        )
+
+        if not ok_count or not ok_sum:
+            missing = diff_info.get("missing", [])
+            extra   = diff_info.get("extra", [])
+            if missing:
+                st.warning(f"**Brakuje w arkuszu** ({len(missing)} poz.) — są w pliku, nie ma w arkuszu:")
+                st.dataframe(
+                    [{"Kwota": tx["kwota"], "Data KS": tx["data_ks"],
+                      "Kontrahent": tx["kontrahent"].split("|")[0],
+                      "Nr rachunku": tx["nr_rachunku"], "Tytuł": tx["tytul"][:60]}
+                     for tx in missing],
+                    use_container_width=True,
+                )
+            if extra:
+                st.warning(f"**Nadmiarowe w arkuszu** ({len(extra)} poz.) — są w arkuszu, nie ma w pliku:")
+                rows_e = []
+                for r in extra:
+                    try:
+                        kwota_e = float(re.sub(r"[^\d,.\-]", "", str(r[5])).replace(",", ".")) if len(r) > 5 else 0.0
+                    except (ValueError, TypeError):
+                        kwota_e = 0.0
+                    rows_e.append({"Kwota": kwota_e, "Data KS": r[6] if len(r) > 6 else "",
+                                   "Kontrahent": r[4] if len(r) > 4 else "",
+                                   "Nr rachunku": r[11] if len(r) > 11 else "",
+                                   "Tytuł": str(r[7])[:60] if len(r) > 7 else ""})
+                st.dataframe(rows_e, use_container_width=True)
+
     with left_col:
         with st.container(border=True):
             st.markdown("#### Faktury kosztowe")
@@ -2971,59 +3036,17 @@ if btn_paruj:
                      tx_total, tx_sum, sheet_tx_count, sheet_tx_sum,
                      diff_info) = sync_parowanie(worksheet, transactions)
 
-                parts = [f"Sparowano: {sparowane}"]
-                if fioletowe:
-                    parts.append(f"🟣 Fioletowe (niezgodna kwota): {fioletowe}")
-                if pomaranczowe:
-                    parts.append(f"🟠 Pomarańczowe (brak pary): {pomaranczowe}")
-                parts.append(f"Niesparowane z wyciągu: {niesparowane}")
-                st.toast("✅ Gotowe! " + " | ".join(parts))
-
-                # Dwa osobne sprawdzenia weryfikacji
-                ok_count = (tx_total == sheet_tx_count)
-                ok_sum   = (abs(tx_sum - sheet_tx_sum) < 0.02)
-                count_icon = "✅" if ok_count else "⚠️"
-                sum_icon   = "✅" if ok_sum   else "⚠️"
-                st.toast(
-                    f"{count_icon} Plik {tx_total} poz. / Arkusz {sheet_tx_count} poz."
-                    f"{'  ✓' if ok_count else f'  RÓŻNICA: {sheet_tx_count - tx_total:+d}'}"
-                    f"   |   "
-                    f"{sum_icon} Plik {tx_sum:,.2f} PLN / Arkusz {sheet_tx_sum:,.2f} PLN"
-                    f"{'  ✓' if ok_sum else f'  RÓŻNICA: {sheet_tx_sum - tx_sum:+.2f} PLN'}"
-                )
-
-                # Diagnostyka rozbieznosci
-                if not ok_count or not ok_sum:
-                    missing = diff_info.get("missing", [])
-                    extra   = diff_info.get("extra", [])
-                    if missing:
-                        st.warning(f"**Brakuje w arkuszu** ({len(missing)} poz.) — są w pliku, nie ma w arkuszu:")
-                        rows_m = []
-                        for tx in missing:
-                            rows_m.append({
-                                "Kwota": tx["kwota"],
-                                "Data KS": tx["data_ks"],
-                                "Kontrahent": tx["kontrahent"].split("|")[0],
-                                "Nr rachunku": tx["nr_rachunku"],
-                                "Tytuł": tx["tytul"][:60],
-                            })
-                        st.dataframe(rows_m, use_container_width=True)
-                    if extra:
-                        st.warning(f"**Nadmiarowe w arkuszu** ({len(extra)} poz.) — są w arkuszu, nie ma w pliku:")
-                        rows_e = []
-                        for r in extra:
-                            try:
-                                kwota_e = float(re.sub(r"[^\d,.\-]", "", str(r[5])).replace(",", ".")) if len(r) > 5 else 0.0
-                            except (ValueError, TypeError):
-                                kwota_e = 0.0
-                            rows_e.append({
-                                "Kwota": kwota_e,
-                                "Data KS": r[6] if len(r) > 6 else "",
-                                "Kontrahent": r[4] if len(r) > 4 else "",
-                                "Nr rachunku": r[11] if len(r) > 11 else "",
-                                "Tytuł": str(r[7])[:60] if len(r) > 7 else "",
-                            })
-                        st.dataframe(rows_e, use_container_width=True)
+                _dialog_wynik_parowania({
+                    "sparowane":      sparowane,
+                    "niesparowane":   niesparowane,
+                    "fioletowe":      fioletowe,
+                    "pomaranczowe":   pomaranczowe,
+                    "tx_total":       tx_total,
+                    "tx_sum":         tx_sum,
+                    "sheet_tx_count": sheet_tx_count,
+                    "sheet_tx_sum":   sheet_tx_sum,
+                    "diff_info":      diff_info,
+                })
 
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
