@@ -1854,21 +1854,40 @@ def sync_parowanie(worksheet, transactions):
             extra_rows.append(r)
             used_e[sig] += 1
 
-    diff_info = {"missing": missing_txs, "extra": extra_rows}
+    # ── FINAŁ: usuń nadmiarowe + dodaj brakujące (sygnatura-based) ───────────────
+    # Chronimy tylko status=3 (beton). Wszystko inne może być usunięte jeśli TX
+    # nie istnieje w pliku wyciągu lub jest duplikatem.
+    _extra_to_remove = Counter(extra_sigs)
+    for _sec in SECTION_ORDER:
+        _new_rows = []
+        for r in sections[_sec]:
+            if len(r) > 4 and str(r[4]).strip():   # wiersz ma dane TX (col E)
+                try:
+                    _kw = round(float(
+                        re.sub(r"[^\d,.\-]", "", str(r[5])).replace(",", ".")
+                    ), 2) if len(r) > 5 and str(r[5]).strip() else 0.0
+                except (ValueError, TypeError):
+                    _kw = 0.0
+                _rsig = (
+                    _kw,
+                    _norm_date(r[6]) if len(r) > 6 else "",
+                    str(r[11]).strip() if len(r) > 11 else "",
+                    str(r[7]).strip()[:30] if len(r) > 7 else "",
+                )
+                if _extra_to_remove[_rsig] > 0:
+                    if str(r[2] if len(r) > 2 else "").strip() == "3":
+                        _new_rows.append(r)   # status=3 — beton, nietykalny
+                    else:
+                        _extra_to_remove[_rsig] -= 1   # usuń wiersz
+                    continue
+            _new_rows.append(r)
+        sections[_sec] = _new_rows
 
-    # Usuń nadmiarowe wiersze z arkusza (są w arkuszu, nie ma ich w pliku wyciągu).
-    # Chronimy status=2 GŁÓWNE wiersze (A ma nazwe pliku) — te zatwierdził użytkownik.
-    # Sub-wiersze (A='', status=2) tworzy automatycznie program — można je usuwać.
-    if extra_rows:
-        _extra_ids = {
-            id(r) for r in extra_rows
-            if not (len(r) > 2 and str(r[2]).strip() == "2" and (r[0] if r else ""))
-            and not (len(r) > 2 and str(r[2]).strip() == "3")
-        }
-        for _sec in SECTION_ORDER:
-            if _sec == SEP_INNE_RK:
-                continue
-            sections[_sec] = [r for r in sections[_sec] if id(r) not in _extra_ids]
+    # Brakujące TX → dodaj na dół NIEZNANE jako niesparowane
+    for tx in missing_txs:
+        sections[SEP_NIEZNANE].append(_build_unmatched_row(tx))
+
+    diff_info = {"missing": [], "extra": []}   # po reconcile zawsze 0
 
     rebuild_sheet(worksheet, sections)
 
@@ -3078,20 +3097,6 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
                      for tx in missing],
                     use_container_width=True,
                 )
-                if st.button("Wklej brakujące do arkusza", type="primary"):
-                    try:
-                        creds_d = get_credentials()
-                        client_d = gspread.authorize(creds_d)
-                        ws_d = get_or_create_worksheet(
-                            client_d.open_by_key(SPREADSHEET_ID), subfolder_name_d
-                        )
-                        secs_d = read_all_sections(ws_d)
-                        for tx in missing:
-                            secs_d[SEP_NIEZNANE].append(_build_unmatched_row(tx))
-                        rebuild_sheet(ws_d, secs_d)
-                        st.success(f"Wklejono {len(missing)} brakujących wierszy do sekcji NIEZNANE.")
-                    except Exception as e:
-                        st.error(f"Błąd: {e}")
             if extra:
                 st.warning(f"**Nadmiarowe w arkuszu** ({len(extra)} poz.) — są w arkuszu, nie ma w pliku:")
                 rows_e = []
