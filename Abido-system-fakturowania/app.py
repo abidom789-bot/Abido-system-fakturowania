@@ -670,7 +670,9 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name, credentials=
         except (ValueError, TypeError):
             amount = 0.0
 
-        # Data wystawienia i ewentualna korekta proporcjonalna
+        # Data wystawienia: jezeli najemca wszedl w srodku miesiaca, faktura
+        # ma date wystawienia = data startu umowy (nie 1. dnia miesiaca).
+        # Kwota NIE jest redukowana — uzytkownik wpisuje juz poprawna kwote w kol. B.
         issue_date = default_issue
         contract_start = _parse_contract_start(dates_str)
         if (contract_start
@@ -678,8 +680,6 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name, credentials=
                 and contract_start.month == month
                 and contract_start.day > 1):
             issue_date = contract_start
-            days_remaining = last_day - contract_start.day + 1
-            amount = round(amount * days_remaining / last_day, 2)
 
         payment_method = "Przelew" if "pr_in" in klucz else "Gotówka"
         invoice_nr     = f"FVS {year} {month:02d} {num:02d} T"
