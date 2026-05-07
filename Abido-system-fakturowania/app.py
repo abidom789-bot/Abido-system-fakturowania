@@ -1576,11 +1576,16 @@ def sync_parowanie(worksheet, transactions):
 
     diff_info = {"missing": missing_txs, "extra": extra_rows}
 
-    # Usuń nadmiarowe wiersze z SEP_NIEZNANE (są w arkuszu, nie ma ich w pliku wyciągu).
-    # Nie ruszamy wierszy status=2 — są zamrożone. Pozostałe sekcje też zostawione.
+    # Usuń nadmiarowe wiersze z arkusza (są w arkuszu, nie ma ich w pliku wyciągu).
+    # Chronimy status=2 GŁÓWNE wiersze (A ma nazwe pliku) — te zatwierdził użytkownik.
+    # Sub-wiersze (A='', status=2) tworzy automatycznie program — można je usuwać.
     if extra_rows:
-        _extra_ids = {id(r) for r in extra_rows if not (len(r) > 2 and str(r[2]).strip() == "2")}
-        sections[SEP_NIEZNANE] = [r for r in sections[SEP_NIEZNANE] if id(r) not in _extra_ids]
+        _extra_ids = {
+            id(r) for r in extra_rows
+            if not (len(r) > 2 and str(r[2]).strip() == "2" and (r[0] if r else ""))
+        }
+        for _sec in SECTION_ORDER:
+            sections[_sec] = [r for r in sections[_sec] if id(r) not in _extra_ids]
 
     rebuild_sheet(worksheet, sections)
 
