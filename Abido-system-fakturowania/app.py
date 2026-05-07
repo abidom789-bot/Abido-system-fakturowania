@@ -3257,23 +3257,7 @@ if btn_generuj_pdf:
             if not invoices:
                 st.warning("Brak wierszy w sekcji FAKTURY SPRZEDAZY NAJEMCOM.")
             else:
-                # Próbuj wgrać na Drive przez user OAuth credentials
-                user_drive = _get_user_drive_service()
-                if user_drive:
-                    with st.spinner("Wgrywam na Google Drive..."):
-                        folder_name = upload_invoices_to_drive(user_drive, invoices, name)
-                    st.success(
-                        f"Gotowe! Wygenerowano {len(invoices)} faktur. "
-                        f"Folder na Drive: '{folder_name}'"
-                    )
-                else:
-                    # Fallback: przyciski download (brak google_drive_oauth w secrets)
-                    st.success(f"Wygenerowano {len(invoices)} faktur. Pobierz ponizej.")
-                    st.info(
-                        "Aby wgrywac automatycznie na Drive, dodaj sekcje "
-                        "[google_drive_oauth] do Streamlit secrets "
-                        "(uruchom get_refresh_token.py — instrukcja w pliku)."
-                    )
+                def _show_download_buttons(invoices, name):
                     merged_bytes = merge_pdf_bytes([b for _, b in invoices])
                     st.download_button(
                         f"Pobierz scalony PDF ({len(invoices)} faktur)",
@@ -3292,6 +3276,26 @@ if btn_generuj_pdf:
                                 mime="application/pdf",
                                 key=f"dl_{filename}",
                             )
+
+                # Próbuj wgrać na Drive przez user OAuth credentials
+                user_drive = _get_user_drive_service()
+                if user_drive:
+                    try:
+                        with st.spinner("Wgrywam na Google Drive..."):
+                            folder_name = upload_invoices_to_drive(user_drive, invoices, name)
+                        st.success(
+                            f"Gotowe! Wygenerowano {len(invoices)} faktur. "
+                            f"Folder na Drive: '{folder_name}'"
+                        )
+                    except Exception as drive_err:
+                        st.warning(
+                            f"Nie udalo sie wgrac na Drive ({drive_err}). "
+                            f"Pobierz faktury ponizej."
+                        )
+                        _show_download_buttons(invoices, name)
+                else:
+                    st.success(f"Wygenerowano {len(invoices)} faktur. Pobierz ponizej.")
+                    _show_download_buttons(invoices, name)
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
