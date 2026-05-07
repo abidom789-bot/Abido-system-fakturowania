@@ -836,6 +836,9 @@ def rebuild_sheet(worksheet, sections):
         _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _KP_BG})
     for row_num in kw_rows:
         _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _KW_BG})
+    # Jawnie ustaw format liczbowy dla wyciag_Kwota (kol F) — bez tego kol. dziedziczy
+    # format DATE po starej kolumnie i liczby wyswietlaja sie jako daty.
+    _api(worksheet.format, "F2:F500", {"numberFormat": {"type": "NUMBER", "pattern": "0.00"}})
 
 
 def apply_sync_logic(existing_rows, new_data, has_address=False, default_status="0"):
@@ -1542,24 +1545,30 @@ def sync_parowanie(worksheet, transactions):
 
     diff_info = {"missing": missing_txs, "extra": extra_rows}
 
+    # Usuń nadmiarowe wiersze z SEP_NIEZNANE (są w arkuszu, nie ma ich w pliku wyciągu).
+    # Nie ruszamy wierszy status=2 — są zamrożone. Pozostałe sekcje też zostawione.
+    if extra_rows:
+        _extra_ids = {id(r) for r in extra_rows if not (len(r) > 2 and str(r[2]).strip() == "2")}
+        sections[SEP_NIEZNANE] = [r for r in sections[SEP_NIEZNANE] if id(r) not in _extra_ids]
+
     rebuild_sheet(worksheet, sections)
 
-    # Kolorowanie wierszy po markerach w kolumnie Q
+    # Kolorowanie wierszy po markerach w kolumnie N (Uwagi, poz. 13)
     all_vals = worksheet.get_all_values()
     clear_updates = []
     purple_rows = []
     orange_rows = []
     for row_i, row_vals in enumerate(all_vals):
-        if len(row_vals) <= 16:
+        if len(row_vals) <= 13:
             continue
-        marker = row_vals[16]
+        marker = row_vals[13]
         row_num = row_i + 1
         if marker == _PURPLE_MARKER:
             purple_rows.append(row_num)
-            clear_updates.append({"range": f"Q{row_num}", "values": [[""]]})
+            clear_updates.append({"range": f"N{row_num}", "values": [[""]]})
         elif marker == _ORANGE_MARKER:
             orange_rows.append(row_num)
-            clear_updates.append({"range": f"Q{row_num}", "values": [[""]]})
+            clear_updates.append({"range": f"N{row_num}", "values": [[""]]})
     for row_num in purple_rows:
         _api(worksheet.format, f"A{row_num}:N{row_num}", {"backgroundColor": _PURPLE_BG})
     for row_num in orange_rows:
