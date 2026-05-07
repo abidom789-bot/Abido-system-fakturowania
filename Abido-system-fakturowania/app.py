@@ -589,6 +589,24 @@ def _get_user_drive_service():
         return None
 
 
+def _invoices_summary(invoices):
+    """Zwraca (ilosc, suma_int) na podstawie kwot z nazw plikow fvs_..._KWOTA.pdf."""
+    total = 0
+    for fname, _ in invoices:
+        parts = fname.replace(".pdf", "").split("_")
+        try:
+            total += int(parts[-1])
+        except (ValueError, IndexError):
+            pass
+    return len(invoices), total
+
+
+def _merged_filename(subfolder_name, invoices):
+    count, total = _invoices_summary(invoices)
+    today = date.today().strftime("%d%m%Y")
+    return f"Fs_najemcy_{subfolder_name}_{count}szt_{total}zl_{today}.pdf"
+
+
 def upload_invoices_to_drive(user_drive_service, invoices, subfolder_name):
     """
     Wgrywa faktury PDF na Drive uzywajac user OAuth credentials.
@@ -603,7 +621,7 @@ def upload_invoices_to_drive(user_drive_service, invoices, subfolder_name):
         merged = merge_pdf_bytes([b for _, b in invoices])
         upload_file_to_drive(
             user_drive_service, folder_id,
-            f"Fs_najemcy_{subfolder_name}.pdf", merged
+            _merged_filename(subfolder_name, invoices), merged
         )
     return folder_name
 
@@ -3509,7 +3527,7 @@ if btn_generuj_pdf:
                     st.download_button(
                         f"Pobierz scalony PDF ({len(invoices)} faktur)",
                         data=merged_bytes,
-                        file_name=f"Fs_najemcy_{name}.pdf",
+                        file_name=_merged_filename(name, invoices),
                         mime="application/pdf",
                         use_container_width=True,
                         type="primary",
