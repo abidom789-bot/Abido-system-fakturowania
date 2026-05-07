@@ -1829,22 +1829,20 @@ def preview_kp_kw_html(subfolder_name, sections):
     DKPP = "#EBFAE6"
     DKWP = "#FCEBE6"
 
-    def td(val, bg="", bold=False, align="left", fg=""):
-        styles = "padding:3px 7px;border:1px solid #ccc;"
-        if bg:   styles += f"background:{bg};"
+    def td(val, bg="#ffffff", bold=False, align="left", fg="#333333"):
+        styles = f"padding:3px 7px;border:1px solid #ccc;background:{bg};color:{fg};"
         if bold: styles += "font-weight:bold;"
-        if fg:   styles += f"color:{fg};"
         v = str(val) if str(val).strip() else "&nbsp;"
         return f'<td style="{styles}text-align:{align}">{v}</td>'
 
-    lines = ['<table style="width:100%;border-collapse:collapse;font-size:12px;font-family:sans-serif">']
+    lines = ['<table style="width:100%;border-collapse:collapse;font-size:12px;font-family:sans-serif;background:#ffffff">']
     for row, rtype in zip(block, row_types):
         if rtype == "separator":
             continue
         r = [str(x) if str(x).strip() else "" for x in row]
         if rtype == "marker":
             lines.append(
-                f'<tr><td colspan="7" style="background:#EDEDED;padding:3px 7px;'
+                f'<tr><td colspan="7" style="background:#EDEDED;color:#333333;padding:3px 7px;'
                 f'border:1px solid #ccc;font-weight:bold">{r[0]}</td></tr>'
             )
         elif rtype == "header":
@@ -1860,12 +1858,12 @@ def preview_kp_kw_html(subfolder_name, sections):
         elif rtype == "cat_header":
             lines.append("<tr>")
             lines.append(
-                f'<td colspan="3" style="background:{CHKP};padding:3px 7px;'
+                f'<td colspan="3" style="background:{CHKP};color:#333333;padding:3px 7px;'
                 f'border:1px solid #ccc;font-weight:bold">{r[0] or "&nbsp;"}</td>'
             )
             lines.append(td(""))
             lines.append(
-                f'<td colspan="3" style="background:{CHKW};padding:3px 7px;'
+                f'<td colspan="3" style="background:{CHKW};color:#333333;padding:3px 7px;'
                 f'border:1px solid #ccc;font-weight:bold">{r[4] or "&nbsp;"}</td>'
             )
             lines.append("</tr>")
