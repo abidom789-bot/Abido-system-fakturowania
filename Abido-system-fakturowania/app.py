@@ -1818,6 +1818,73 @@ def _build_kp_kw_block(subfolder_name, kp_entries, kw_entries):
     return rows, types
 
 
+def preview_kp_kw_html(subfolder_name, sections):
+    """Generuje HTML podglądu KP/KW z sekcji arkusza (zero zapisu do Sheets)."""
+    kp_entries, kw_entries = _extract_rk_entries(sections)
+    block, row_types = _build_kp_kw_block(subfolder_name, kp_entries, kw_entries)
+
+    HDR  = "#3370B0"
+    CHKP = "#C7EBC7"
+    CHKW = "#F5C7C7"
+    DKPP = "#EBFAE6"
+    DKWP = "#FCEBE6"
+
+    def td(val, bg="", bold=False, align="left", fg=""):
+        styles = "padding:3px 7px;border:1px solid #ccc;"
+        if bg:   styles += f"background:{bg};"
+        if bold: styles += "font-weight:bold;"
+        if fg:   styles += f"color:{fg};"
+        v = str(val) if str(val).strip() else "&nbsp;"
+        return f'<td style="{styles}text-align:{align}">{v}</td>'
+
+    lines = ['<table style="width:100%;border-collapse:collapse;font-size:12px;font-family:sans-serif">']
+    for row, rtype in zip(block, row_types):
+        if rtype == "separator":
+            continue
+        r = [str(x) if str(x).strip() else "" for x in row]
+        if rtype == "marker":
+            lines.append(
+                f'<tr><td colspan="7" style="background:#EDEDED;padding:3px 7px;'
+                f'border:1px solid #ccc;font-weight:bold">{r[0]}</td></tr>'
+            )
+        elif rtype == "header":
+            lines.append("<tr>")
+            lines.append(td(r[0], HDR, bold=True, fg="white"))
+            lines.append(td("",   HDR, fg="white"))
+            lines.append(td(r[2], HDR, bold=True, align="right", fg="white"))
+            lines.append(td(r[3], HDR, bold=True, align="right", fg="white"))
+            lines.append(td("",   HDR, fg="white"))
+            lines.append(td("",   HDR, fg="white"))
+            lines.append(td(r[6], HDR, bold=True, align="right", fg="white"))
+            lines.append("</tr>")
+        elif rtype == "cat_header":
+            lines.append("<tr>")
+            lines.append(
+                f'<td colspan="3" style="background:{CHKP};padding:3px 7px;'
+                f'border:1px solid #ccc;font-weight:bold">{r[0] or "&nbsp;"}</td>'
+            )
+            lines.append(td(""))
+            lines.append(
+                f'<td colspan="3" style="background:{CHKW};padding:3px 7px;'
+                f'border:1px solid #ccc;font-weight:bold">{r[4] or "&nbsp;"}</td>'
+            )
+            lines.append("</tr>")
+        elif rtype == "data":
+            has_kp = bool(r[0] or r[1] or r[2])
+            has_kw = bool(r[4] or r[5] or r[6])
+            lines.append("<tr>")
+            lines.append(td(r[0], DKPP if has_kp else ""))
+            lines.append(td(r[1], DKPP if has_kp else ""))
+            lines.append(td(r[2], DKPP if has_kp else "", align="right"))
+            lines.append(td(""))
+            lines.append(td(r[4], DKWP if has_kw else ""))
+            lines.append(td(r[5], DKWP if has_kw else ""))
+            lines.append(td(r[6], DKWP if has_kw else "", align="right"))
+            lines.append("</tr>")
+    lines.append("</table>")
+    return "\n".join(lines)
+
+
 def _fmt_ranges(row_nums):
     """Zamienia listę numerów wierszy na listę (start, end) ciągłych zakresów."""
     if not row_nums:
@@ -2732,6 +2799,10 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
     # Trzy kolumny akcji
     left_col, mid_col, right_col = st.columns(3)
 
+    @st.dialog("Podgląd KP / KW", width="large")
+    def _dialog_podglad_kp_kw(html):
+        st.markdown(html, unsafe_allow_html=True)
+
     with left_col:
         with st.container(border=True):
             st.markdown("#### Faktury kosztowe")
@@ -2772,6 +2843,10 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
             )
             btn_refresh_kpkw = st.button(
                 "Odśwież KP / KW",
+                use_container_width=True,
+            )
+            btn_show_kpkw = st.button(
+                "Pokaż KP / KW",
                 use_container_width=True,
             )
 
@@ -2975,6 +3050,27 @@ if btn_refresh_kpkw:
                 sections_kpkw = read_all_sections(worksheet)
                 refresh_kp_kw(client.open_by_key(SPREADSHEET_ID), name, sections_kpkw)
             st.success(f"KP / KW zaktualizowane dla {name}.")
+        except Exception as e:
+            st.error(f"Wystapil blad: {e}")
+
+# ----------------------------------------------------------------
+# AKCJA: Pokaz KP / KW (podglad bez zapisu)
+# ----------------------------------------------------------------
+if btn_show_kpkw:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds = get_credentials()
+            client = gspread.authorize(creds)
+            with st.spinner("Czytam arkusz..."):
+                worksheet = get_or_create_worksheet(
+                    client.open_by_key(SPREADSHEET_ID), name
+                )
+                sections_podglad = read_all_sections(worksheet)
+            html = preview_kp_kw_html(name, sections_podglad)
+            _dialog_podglad_kp_kw(html)
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
