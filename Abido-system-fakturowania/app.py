@@ -1222,17 +1222,17 @@ def assign_klucz_ksiegowy(section, tx, amount_b_str, filename=""):
     return "nieznany_out" if kwota < 0 else "nieznany_in"
 
 
-def _frozen_tx_pre_used(sections, transactions):
+def _frozen_tx_pre_used(sections, transactions, statuses=("2",)):
     """
-    Zwraca zbior indeksow transakcji z wyciagu juz uzytych przez wiersze ze statusem 2.
-    Status=9 NIE blokuje TX — TX wraca do puli i moze sie ponownie sparowac lub
-    trafic do SEP_NIEZNANE. Dzieki temu TX nigdy nie "ginie".
+    Zwraca zbior indeksow transakcji z wyciagu juz uzytych przez wiersze o podanych statusach.
+    Domyslnie status=2. Moze tez obslugiwac status=3 (beton).
+    Status=9 NIE blokuje TX — TX wraca do puli i moze sie ponownie sparowac.
     Sygnatura: (kwota, data_ks, nr_rachunku, tytul[:20]) — wystarczajaco unikalna.
     """
     frozen_sigs = set()
-    for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC, SEP_NIEZNANE]:
+    for sep in SECTION_ORDER:
         for row in sections[sep]:
-            if str(row[2]).strip() != "2":   # tylko status=2 blokuje TX
+            if str(row[2] if len(row) > 2 else "").strip() not in statuses:
                 continue
             if len(row) <= 6 or not str(row[6]).strip():
                 continue  # brak daty_ks = nigdy nie bylo sparowania
@@ -1481,6 +1481,17 @@ def sync_parowanie(worksheet, transactions):
                 continue
             _inne_rk_sigs[(_kw, str(_r[6]).strip(), str(_r[11]).strip() if len(_r) > 11 else "")] += 1
 
+    # Zachowaj wiersze status=3 z NIEZNANE zanim KROK 0 zmodyfikuje sekcje.
+    # Sekcja NIEZNANE jest pozniej calkowicie nadpisywana — bez tego wiersze gina.
+    _frozen3_nieznane = [
+        (i, r) for i, r in enumerate(sections[SEP_NIEZNANE])
+        if str(r[2] if len(r) > 2 else "").strip() == "3"
+    ]
+
+    # TX uzywane przez wiersze status=3 (we wszystkich sekcjach).
+    # Musza byc w pre_used (blokada re-parowania) i w used_tx (blokada unmatched_rows).
+    _status3_pre_used = _frozen_tx_pre_used(sections, transactions, statuses=("3",))
+
     # ── KROK 0: Snapshot status=2 ──────────────────────────────────────────────
     # Fizycznie wyjmij zamrozone wiersze ze wszystkich sekcji zanim cokolwiek
     # zostanie dotkniete. Zadna petla parowania ich nie zobaczy.
@@ -1537,13 +1548,6 @@ def sync_parowanie(worksheet, transactions):
         frozen_backup[sep] = frozen
         sections[sep] = active
 
-    # Zachowaj wiersze status=3 z NIEZNANE (beda stracone gdy sekcja zostanie
-    # zbudowana od nowa z frozen_nieznane + unmatched_rows).
-    _frozen3_nieznane = [
-        (i, r) for i, r in enumerate(sections[SEP_NIEZNANE])
-        if str(r[2] if len(r) > 2 else "").strip() == "3"
-    ]
-
     # ── Kandydaci do parowania ─────────────────────────────────────────────────
     _DIRECTION = {SEP_KOSZTOWE: -1, SEP_SPRZEDAZ: 1, SEP_WLASC: -1}
     candidates = []   # (flat_idx, section, row_idx_in_section, name, amount, direction)
@@ -1567,7 +1571,7 @@ def sync_parowanie(worksheet, transactions):
     }
     # Tylko bankomaty ktore NIE sa juz zamrozone — te wylaczamy z parowania
     bankomat_excluded = bankomat_indices - real_pre_used
-    pre_used = real_pre_used | bankomat_excluded
+    pre_used = real_pre_used | bankomat_excluded | _status3_pre_used
 
     # ── Status=9: zablokuj ponowne sparowanie ze starym TX ────────────────────
     def _tx_sig(tx):
@@ -1598,6 +1602,8 @@ def sync_parowanie(worksheet, transactions):
     matched, name_only, extras, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked, multi_eligible=multi_eligible)
     # Bankomat TX (nie-zamrozone) ida do SEP_INNE_RK — usun z used_tx
     used_tx -= bankomat_excluded
+    # TX wierszy status=3 — juz sa w arkuszu, nie trafiaja do unmatched_rows
+    used_tx |= _status3_pre_used
 
     unmatched_count = 0
 
