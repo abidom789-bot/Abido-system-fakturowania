@@ -1057,26 +1057,35 @@ def read_all_sections(worksheet):
     Wiersze separatorow sa pomijane.
     """
     all_rows = worksheet.get_all_values()
-    sections = {sep: [] for sep in SECTION_ORDER}
-    current  = None
+    sections   = {sep: [] for sep in SECTION_ORDER}
+    current    = None
+    in_summary = False   # pomijamy wiersze tabeli podsumowania (add_section_summary)
     for row in all_rows:
         val = row[0] if row else ""
         matched = _match_separator(val)
         if matched:
-            current = matched
-        elif current:
-            row = _migrate_row(row)   # migracja 17-kol → 14-kol (jesli stary format)
-            if current == SEP_NIEZNANE:
-                # SEP_NIEZNANE: brak faktury w A — wlaczamy jesli cokolwiek wypelnione
-                if any(c for c in row):
-                    sections[current].append(row)
-            elif val or str(row[2]).strip() == "3":
-                # Normalny wiersz — klucz w kol A, lub status=3 (beton) bez nazwy pliku
+            current    = matched
+            in_summary = False
+            continue
+        # Wykryj naglowek tabeli podsumowania: col A="Segment", col B zawiera "pozycji"
+        if (str(val).strip() == "Segment"
+                and len(row) > 1 and "pozycji" in str(row[1]).lower()):
+            in_summary = True
+        if in_summary:
+            continue
+        if not current:
+            continue
+        row = _migrate_row(row)   # migracja 17-kol → 14-kol (jesli stary format)
+        if current == SEP_NIEZNANE:
+            # SEP_NIEZNANE: brak faktury w A — wlaczamy jesli cokolwiek wypelnione
+            if any(c for c in row):
                 sections[current].append(row)
-            elif len(row) > 4 and row[4]:
-                # Dodatkowy wiersz parowania: puste A i B, ale jest kontrahent w kol E
-                # (np. kilka transakcji bankowych do jednej faktury)
-                sections[current].append(row)
+        elif val or str(row[2]).strip() == "3":
+            # Normalny wiersz — klucz w kol A, lub status=3 (beton) bez nazwy pliku
+            sections[current].append(row)
+        elif len(row) > 4 and row[4]:
+            # Dodatkowy wiersz parowania: puste A i B, ale jest kontrahent w kol E
+            sections[current].append(row)
     return sections
 
 
@@ -1799,13 +1808,26 @@ def add_section_summary(worksheet):
                     pass
     wyciag_sum = round(wyciag_sum, 2)
 
-    # Znajdź ostatni wiersz z danymi
+    # Znajdź pozycję starego podsumowania (jeśli istnieje) lub ostatni wiersz z danymi
     all_vals = _api(worksheet.get_all_values)
-    last_row = len(all_vals)
-    while last_row > 0 and not any(c for c in all_vals[last_row - 1]):
-        last_row -= 1
+    old_summary_row = None
+    for _i, _r in enumerate(all_vals):
+        if (str(_r[0]).strip() == "Segment"
+                and len(_r) > 1 and "pozycji" in str(_r[1]).lower()):
+            old_summary_row = _i + 1   # 1-based
+            break
 
-    start = last_row + 2
+    if old_summary_row:
+        # Wyczyść stare podsumowanie — nadpisz pustymi wierszami
+        _blank_rows = [[""] * 4] * (len(all_vals) - old_summary_row + 1)
+        _api(worksheet.update, f"A{old_summary_row}", _blank_rows,
+             value_input_option="USER_ENTERED")
+        start = old_summary_row
+    else:
+        last_row = len(all_vals)
+        while last_row > 0 and not any(c for c in all_vals[last_row - 1]):
+            last_row -= 1
+        start = last_row + 2
 
     # Buduj wiersze tabeli
     rows = [["Segment", "Ilość pozycji", "Suma kol. B (faktura)", "Suma wyciąg_Kwota"]]
