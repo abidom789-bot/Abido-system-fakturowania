@@ -1829,12 +1829,18 @@ def add_section_summary(worksheet):
             last_row -= 1
         start = last_row + 2
 
-    # Policz wiersze ze statusem 0 lub 1 (niezamkniete) — wszystkie sekcje, tylko col A niepuste
+    # Policz wiersze ze statusem 0 lub 1 (niezamkniete)
+    # Sekcje fakturowe (col A niepuste) + NIEZNANE (col A puste, liczymy po col C)
     open_count = 0
-    for sec_rows in sections.values():
+    for sep, sec_rows in sections.items():
         for row in sec_rows:
-            if str(row[0]).strip() and str(row[2] if len(row) > 2 else "").strip() in ("0", "1"):
-                open_count += 1
+            status = str(row[2] if len(row) > 2 else "").strip()
+            if status not in ("0", "1"):
+                continue
+            if sep == SEP_NIEZNANE:
+                open_count += 1   # NIEZNANE: każdy wiersz z status=1 liczymy
+            elif str(row[0]).strip():
+                open_count += 1   # pozostałe sekcje: tylko główne wiersze (col A niepuste)
 
     # Buduj wiersze tabeli
     rows = [["Segment", "Ilość pozycji", "Suma kol. B (faktura)", "Suma wyciąg_Kwota"]]
@@ -1877,6 +1883,7 @@ def add_section_summary(worksheet):
     row_fmts.append((open_row, {
         "backgroundColor": open_bg,
         "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
+        "numberFormat": {"type": "NUMBER", "pattern": "0"},   # liczba całkowita, bez waluty
     }))
     _batch_format_rows(worksheet, row_fmts)
 
