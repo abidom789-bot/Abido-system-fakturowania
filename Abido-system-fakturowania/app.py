@@ -1521,38 +1521,109 @@ def _build_unmatched_row(tx):
     ]
 
 
+_SEP_LABELS = {
+    SEP_KOSZTOWE: "Faktury kosztowe",
+    SEP_SPRZEDAZ: "Faktury sprzedazy najemcom",
+    SEP_WLASC:    "Wlasciciele i spoldzielnie",
+    SEP_INNE_RK:  "Inne raporty kasowe",
+    SEP_NIEZNANE: "Nieznane / niesparowane",
+}
+
+
 def add_section_summary(worksheet):
-    """Dodaje tabelkę podsumowania sum kol. B per sekcja na dole arkusza.
-    Parowanie i sortowanie usuwają ją automatycznie (rebuild_sheet wywołuje clear()).
+    """Dodaje tabelkę podsumowania na dole arkusza (4 kolumny):
+    Segment | Ilość pozycji | Suma kol. B (faktura) | Suma wyciąg_Kwota
+
+    Parowanie i sortowanie usuwają ją automatycznie (rebuild_sheet → clear()).
     """
     sections = read_all_sections(worksheet)
-    sums = {}
+
+    # Statystyki per sekcja
+    stats = {}
     for sep in SECTION_ORDER:
-        total = 0.0
+        count = 0
+        sum_b = 0.0
+        sum_f = 0.0
         for row in sections[sep]:
-            if row and str(row[0]).strip():   # tylko główne wiersze (col A niepuste)
+            col_a = str(row[0]).strip() if row else ""
+            col_e = str(row[4]).strip() if len(row) > 4 else ""
+            # Ilość: główne wiersze (col A) dla fakturowych, TX-wiersze (col E) dla reszty
+            if sep in (SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC):
+                if col_a:
+                    count += 1
+                    try:
+                        sum_b += float(re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", "."))
+                    except (ValueError, TypeError):
+                        pass
+            else:
+                if col_e:
+                    count += 1
+            # Suma col F (wyciąg_Kwota) dla wszystkich wierszy z danymi
+            if len(row) > 5 and str(row[5]).strip():
                 try:
-                    total += float(re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", "."))
+                    sum_f += float(re.sub(r"[^\d,.\-]", "", str(row[5])).replace(",", "."))
                 except (ValueError, TypeError):
                     pass
-        sums[sep] = round(total, 2)
+        stats[sep] = (count, round(sum_b, 2), round(sum_f, 2))
 
+    # RAZEM
+    razem_count = sum(s[0] for s in stats.values())
+    razem_b     = round(sum(s[1] for s in stats.values()), 2)
+    razem_f     = round(sum(s[2] for s in stats.values()), 2)
+
+    # Wiersz: wyciąg_Kwota w arkuszu — wszystkie wiersze z niepustą col F
+    wyciag_count = 0
+    wyciag_sum   = 0.0
+    for sec_rows in sections.values():
+        for row in sec_rows:
+            if len(row) > 5 and str(row[5]).strip():
+                wyciag_count += 1
+                try:
+                    wyciag_sum += float(re.sub(r"[^\d,.\-]", "", str(row[5])).replace(",", "."))
+                except (ValueError, TypeError):
+                    pass
+    wyciag_sum = round(wyciag_sum, 2)
+
+    # Znajdź ostatni wiersz z danymi
     all_vals = _api(worksheet.get_all_values)
     last_row = len(all_vals)
     while last_row > 0 and not any(c for c in all_vals[last_row - 1]):
         last_row -= 1
 
     start = last_row + 2
-    summary = [["Segment nazwa", "Kwota kolumny B segmentu"]] + [[sep, sums[sep]] for sep in SECTION_ORDER]
-    _api(worksheet.update, f"A{start}", summary, value_input_option="USER_ENTERED")
 
-    row_fmts = [(start, {"backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},
-                         "textFormat": {"bold": True}})]
+    # Buduj wiersze tabeli
+    rows = [["Segment", "Ilość pozycji", "Suma kol. B (faktura)", "Suma wyciąg_Kwota"]]
+    for sep in SECTION_ORDER:
+        c, sb, sf = stats[sep]
+        rows.append([_SEP_LABELS[sep], c, sb, sf])
+    rows.append(["RAZEM", razem_count, razem_b, razem_f])
+    rows.append(["", "", "", ""])   # separator
+    rows.append(["wyciag_Kwota w arkuszu", wyciag_count, "", wyciag_sum])
+
+    _api(worksheet.update, f"A{start}", rows, value_input_option="USER_ENTERED")
+
+    # Formatowanie
+    row_fmts = []
+    row_fmts.append((start, {                               # nagłówek
+        "backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},
+        "textFormat": {"bold": True},
+    }))
     for i, sep in enumerate(SECTION_ORDER):
-        row_fmts.append((start + 1 + i, {
+        row_fmts.append((start + 1 + i, {                  # sekcje
             "backgroundColor": SEP_COLORS[sep],
             "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
         }))
+    razem_row = start + 1 + len(SECTION_ORDER)
+    row_fmts.append((razem_row, {                           # RAZEM
+        "backgroundColor": {"red": 0.2, "green": 0.2, "blue": 0.2},
+        "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
+    }))
+    wyciag_row = razem_row + 2                              # +1 pusty separator
+    row_fmts.append((wyciag_row, {                          # wyciąg_Kwota
+        "backgroundColor": {"red": 0.18, "green": 0.45, "blue": 0.75},
+        "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
+    }))
     _batch_format_rows(worksheet, row_fmts)
 
 
