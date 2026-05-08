@@ -1098,12 +1098,16 @@ SEP_COLORS = {
 }
 
 
-def rebuild_sheet(worksheet, sections):
+def rebuild_sheet(worksheet, sections, blank_rows=None):
     """
     Zapisuje caly arkusz w poprawnej kolejnosci sekcji:
     Header → Kosztowe → Sprzedaz → Wlasciciele.
     Pomija puste sekcje. Koloruje separatory i wiersze kp/kw.
+    blank_rows: dict {sep: n} ile pustych wierszy pod sekcja. None = domyslne SECTION_BLANK_ROWS.
+                Przekaz {} zeby nie dodawac zadnych pustych wierszy.
     """
+    if blank_rows is None:
+        blank_rows = SECTION_BLANK_ROWS
     all_new = [HEADER_ROW]
     sep_row_nums  = {}   # sep -> numer wiersza (1-based)
     kp_rows       = []   # wiersze z _rk_kp w kluczu (col D)
@@ -1156,7 +1160,7 @@ def rebuild_sheet(worksheet, sections):
             elif "_rk_kw" in klucz:
                 kw_rows.append(row_num)
         _blank = [""] * len(HEADER_ROW)
-        for _ in range(SECTION_BLANK_ROWS.get(sep, 15)):
+        for _ in range(blank_rows.get(sep, 0)):
             all_new.append(_blank)
     _api(worksheet.clear)
     # Reset formatowania — white dla wszystkich POZA status=3 (te zachowuja kolor uzytkownika)
@@ -1293,7 +1297,7 @@ def sort_inne_rk_nieznane(worksheet):
 
     sections[SEP_INNE_RK],  n_inne  = _with_anchors(sections[SEP_INNE_RK],  _inne_rk_key)
     sections[SEP_NIEZNANE], n_niezn = _with_anchors(sections[SEP_NIEZNANE], _nieznane_key)
-    rebuild_sheet(worksheet, sections)
+    rebuild_sheet(worksheet, sections, blank_rows={})
     return n_inne, n_niezn
 
 
@@ -3577,6 +3581,10 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
                 "Sortuj Inne RK oraz Nieznane",
                 use_container_width=True,
             )
+            btn_usun_puste = st.button(
+                "Usuń puste wiersze",
+                use_container_width=True,
+            )
             btn_podsumowanie = st.button(
                 "Dodaj podsumowanie segmentów",
                 use_container_width=True,
@@ -3600,6 +3608,27 @@ if btn_sortuj_inne_rk:
                 f"Posortowano: Inne RK — {n_inne} wierszy, "
                 f"Nieznane — {n_niezn} wierszy (kotwice status=3 zachowane)."
             )
+        except gspread.exceptions.WorksheetNotFound:
+            st.error(f"Arkusz '{name}' nie istnieje.")
+        except Exception as e:
+            st.error(f"Wystąpił błąd: {e}")
+
+# ----------------------------------------------------------------
+# AKCJA: Usuń puste wiersze
+# ----------------------------------------------------------------
+if btn_usun_puste:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds     = get_credentials()
+            client    = gspread.authorize(creds)
+            worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(name)
+            with st.spinner("Usuwam puste wiersze..."):
+                sections = read_all_sections(worksheet)
+                rebuild_sheet(worksheet, sections, blank_rows={})
+            st.success("Puste wiersze usunięte.")
         except gspread.exceptions.WorksheetNotFound:
             st.error(f"Arkusz '{name}' nie istnieje.")
         except Exception as e:
