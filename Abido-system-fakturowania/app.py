@@ -946,35 +946,34 @@ def rebuild_sheet(worksheet, sections):
     frozen3_rows  = []   # wiersze ze statusem=3 (nietykalny kolor i pozycja)
     last_main_num = None # numer wiersza ostatniego "glownego" wiersza (col A niepuste)
     for sep in SECTION_ORDER:
-        if sections[sep]:
-            all_new.append([sep, "", "", ""])
-            sep_row_nums[sep] = len(all_new)
-            last_main_num = None
-            for row in sections[sep]:
-                all_new.append(row)
-                row_num = len(all_new)
-                klucz = str(row[3]).strip() if len(row) > 3 else ""
-                col_a = str(row[0]).strip() if row else ""
-                col_c = str(row[2]).strip() if len(row) > 2 else ""
-                col_h = str(row[4]).strip() if len(row) > 4 else ""
-                if col_c == "3":
-                    frozen3_rows.append(row_num)
-                    last_main_num = None
-                    continue   # status=3: nie dotykaj koloru ani pozycji
-                if col_a:
-                    last_main_num = row_num   # zapamietaj glowny wiersz
-                elif not col_a and col_c == "2" and col_h:
-                    # Sub-wiersz (puste A, status=2, jest kontrahent) = multi-parowanie
-                    if last_main_num is not None:
-                        if last_main_num not in multi_rows:
-                            multi_rows.append(last_main_num)
-                    multi_rows.append(row_num)
-                else:
-                    last_main_num = None
-                if "_rk_kp" in klucz:
-                    kp_rows.append(row_num)
-                elif "_rk_kw" in klucz:
-                    kw_rows.append(row_num)
+        all_new.append([sep, "", "", ""])
+        sep_row_nums[sep] = len(all_new)
+        last_main_num = None
+        for row in sections[sep]:
+            all_new.append(row)
+            row_num = len(all_new)
+            klucz = str(row[3]).strip() if len(row) > 3 else ""
+            col_a = str(row[0]).strip() if row else ""
+            col_c = str(row[2]).strip() if len(row) > 2 else ""
+            col_h = str(row[4]).strip() if len(row) > 4 else ""
+            if col_c == "3":
+                frozen3_rows.append(row_num)
+                last_main_num = None
+                continue   # status=3: nie dotykaj koloru ani pozycji
+            if col_a:
+                last_main_num = row_num   # zapamietaj glowny wiersz
+            elif not col_a and col_c == "2" and col_h:
+                # Sub-wiersz (puste A, status=2, jest kontrahent) = multi-parowanie
+                if last_main_num is not None:
+                    if last_main_num not in multi_rows:
+                        multi_rows.append(last_main_num)
+                multi_rows.append(row_num)
+            else:
+                last_main_num = None
+            if "_rk_kp" in klucz:
+                kp_rows.append(row_num)
+            elif "_rk_kw" in klucz:
+                kw_rows.append(row_num)
     _api(worksheet.clear)
     # Reset formatowania calego arkusza (clear() nie czysci kolorow)
     _api(worksheet.format, "A1:N500", {
