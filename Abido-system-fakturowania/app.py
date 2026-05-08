@@ -1637,9 +1637,9 @@ def _build_paired_row(existing_row, tx, klucz, uwagi=""):
 
 
 def _build_sub_row(tx, klucz):
-    """Sub-wiersz: puste A i B, status=2 (zamrozony), dane TX w H-P."""
+    """Sub-wiersz: puste A i B, status=1 (do zatwierdzenia), dane TX w H-P."""
     return [
-        "", "", "2",
+        "", "", "1",
         klucz,
         tx["kontrahent"].split("|")[0],
         tx["kwota"],
@@ -2173,8 +2173,8 @@ def sync_parowanie(worksheet, transactions):
             used_e[sig] += 1
 
     # ── FINAŁ: usuń nadmiarowe + dodaj brakujące (sygnatura-based) ───────────────
-    # Chronimy tylko status=3 (beton). Wszystko inne może być usunięte jeśli TX
-    # nie istnieje w pliku wyciągu lub jest duplikatem.
+    # Chronimy: status=3 (beton) oraz wszystkie główne wiersze faktur (col A niepuste).
+    # Reconcile może usuwać TYLKO sub-wiersze (col A puste) — nigdy główne faktury.
     _extra_to_remove = Counter(extra_sigs)
     for _sec in SECTION_ORDER:
         _new_rows = []
@@ -2193,10 +2193,12 @@ def sync_parowanie(worksheet, transactions):
                     str(r[7]).strip()[:30] if len(r) > 7 else "",
                 )
                 if _extra_to_remove[_rsig] > 0:
-                    if str(r[2] if len(r) > 2 else "").strip() == "3":
-                        _new_rows.append(r)   # status=3 — beton, nietykalny
+                    _is_main = bool(r[0] if r else "")
+                    _status  = str(r[2] if len(r) > 2 else "").strip()
+                    if _status == "3" or _is_main:
+                        _new_rows.append(r)   # główna faktura lub beton — nietykalny
                     else:
-                        _extra_to_remove[_rsig] -= 1   # usuń wiersz
+                        _extra_to_remove[_rsig] -= 1   # usuń sub-wiersz
                     continue
             _new_rows.append(r)
         sections[_sec] = _new_rows
