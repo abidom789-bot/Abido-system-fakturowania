@@ -1703,7 +1703,11 @@ def sync_parowanie(worksheet, transactions):
                     last_main_status3 = (status_c == "3")
             else:
                 # Sub-wiersz (A='')
-                if last_main_frozen:
+                sub_status = str(row[2]).strip() if len(row) > 2 else ""
+                if sub_status == "3":
+                    # Sam jest betonem — zawsze zachowaj w frozen niezaleznie od rodzica
+                    frozen.append(row)
+                elif last_main_frozen:
                     # Rodzic status=2 → zachowaj sub-wiersz w frozen, deduplikuj
                     sig = _sub_row_sig(row)
                     if sig not in seen_sub_sigs:
