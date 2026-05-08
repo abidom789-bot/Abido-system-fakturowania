@@ -283,14 +283,15 @@ def rename_ksef_invoices(service, ksef_folder_id):
     return results
 
 
-def unpack_ksef_zips(service, ksef_folder_id):
+def unpack_ksef_zips(service, ksef_folder_id, upload_service):
     """
     Szuka plików ZIP w folderze KSeF, wypakowuje PDF-y i wgrywa je do tego folderu,
     po czym usuwa ZIPy.
+    service        — Service Account (listowanie, pobieranie, usuwanie ZIPów)
+    upload_service — OAuth user service (wgrywanie PDF-ów — SA nie ma storage quota)
     Zwraca listę słowników: {zip_name, extracted: [str, ...], status}
       status: 'ok' | 'blad: ...'
     """
-    # Pobierz wszystkie pliki w folderze i odfiltruj ZIPy po nazwie
     query = f"'{ksef_folder_id}' in parents and trashed=false"
     resp  = service.files().list(q=query, fields="files(id, name)").execute()
     zips  = [f for f in resp.get("files", []) if f["name"].lower().endswith(".zip")]
@@ -301,19 +302,19 @@ def unpack_ksef_zips(service, ksef_folder_id):
         zip_id    = zf["id"]
         extracted = []
         try:
-            zip_bytes = download_pdf(service, zip_id)   # download_pdf pobiera dowolny plik
+            zip_bytes = download_pdf(service, zip_id)
             with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
                 for member in z.namelist():
                     if not member.lower().endswith(".pdf"):
                         continue
-                    pdf_name  = os.path.basename(member)   # usuń ewentualne podfoldery
+                    pdf_name  = os.path.basename(member)
                     pdf_bytes = z.read(member)
                     media     = MediaIoBaseUpload(
                         io.BytesIO(pdf_bytes),
                         mimetype="application/pdf",
                         resumable=False,
                     )
-                    service.files().create(
+                    upload_service.files().create(
                         body={"name": pdf_name, "parents": [ksef_folder_id]},
                         media_body=media,
                     ).execute()
@@ -3904,8 +3905,18 @@ if btn_ksef:
                     st.error(f"Nie znaleziono podfolderu '{ksef_folder_name}' wewnątrz '{name}'.")
                 else:
                     # ── Krok 1: Rozpakuj ZIPy ─────────────────────────────────
-                    with st.spinner("Szukam i rozpakowuję pliki ZIP..."):
-                        unpack_results = unpack_ksef_zips(drive_service, ksef_folder["id"])
+                    user_drive = _get_user_drive_service()
+                    if user_drive is None:
+                        st.warning(
+                            "Brak OAuth credentials — pominięto rozpakowywanie ZIPów. "
+                            "Skonfiguruj [google_drive_oauth] w Secrets aby wgrywać pliki."
+                        )
+                        unpack_results = []
+                    else:
+                        with st.spinner("Szukam i rozpakowuję pliki ZIP..."):
+                            unpack_results = unpack_ksef_zips(
+                                drive_service, ksef_folder["id"], upload_service=user_drive
+                            )
 
                     if unpack_results:
                         total_extracted = sum(len(r["extracted"]) for r in unpack_results)
