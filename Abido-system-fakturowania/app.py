@@ -750,6 +750,15 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name, credentials=
 
 SECTION_ORDER = [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC, SEP_INNE_RK, SEP_NIEZNANE]
 
+# Liczba pustych wierszy dodawanych po kazdej sekcji (w rebuild_sheet i create_month_template)
+SECTION_BLANK_ROWS = {
+    SEP_KOSZTOWE: 15,
+    SEP_SPRZEDAZ: 15,
+    SEP_WLASC:    44,
+    SEP_INNE_RK:  15,
+    SEP_NIEZNANE: 15,
+}
+
 
 def get_or_create_worksheet(spreadsheet, sheet_name):
     try:
@@ -768,8 +777,10 @@ def create_month_template(spreadsheet, sheet_name):
                "exists_partial"  — arkusz istnial, dodano brakujace sekcje
                "exists_complete" — arkusz istnial, wszystkie sekcje juz byly
     """
-    _BLANK_ROW  = [""] * len(HEADER_ROW)
-    _BLANK_ROWS = [_BLANK_ROW] * 15
+    _BLANK_ROW = [""] * len(HEADER_ROW)
+
+    def _blank_rows(sep):
+        return [_BLANK_ROW] * SECTION_BLANK_ROWS.get(sep, 15)
 
     def _color_sep(ws, row_num, sep):
         _api(ws.format, f"A{row_num}:N{row_num}", {
@@ -791,7 +802,7 @@ def create_month_template(spreadsheet, sheet_name):
         for sep in SECTION_ORDER:
             all_rows.append([sep] + [""] * (len(HEADER_ROW) - 1))
             sep_row_nums[sep] = len(all_rows)
-            all_rows.extend(_BLANK_ROWS)
+            all_rows.extend(_blank_rows(sep))
         _api(ws.update, "A1", all_rows, value_input_option="USER_ENTERED")
         for sep, rn in sep_row_nums.items():
             _color_sep(ws, rn, sep)
@@ -822,7 +833,7 @@ def create_month_template(spreadsheet, sheet_name):
             if next_sep in present_seps:
                 insert_at = present_seps[next_sep] + row_shift
                 break
-        rows_to_insert = [[sep] + [""] * (len(HEADER_ROW) - 1)] + _BLANK_ROWS
+        rows_to_insert = [[sep] + [""] * (len(HEADER_ROW) - 1)] + _blank_rows(sep)
         if insert_at is not None:
             _api(ws.insert_rows, rows_to_insert, insert_at, value_input_option="USER_ENTERED")
         else:
@@ -974,6 +985,9 @@ def rebuild_sheet(worksheet, sections):
                 kp_rows.append(row_num)
             elif "_rk_kw" in klucz:
                 kw_rows.append(row_num)
+        _blank = [""] * len(HEADER_ROW)
+        for _ in range(SECTION_BLANK_ROWS.get(sep, 15)):
+            all_new.append(_blank)
     _api(worksheet.clear)
     # Reset formatowania calego arkusza (clear() nie czysci kolorow)
     _api(worksheet.format, "A1:N500", {
