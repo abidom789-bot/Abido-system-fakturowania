@@ -1120,8 +1120,8 @@ def rebuild_sheet(worksheet, sections):
                 continue   # status=3: nie dotykaj koloru ani pozycji
             if col_a:
                 last_main_num = row_num   # zapamietaj glowny wiersz
-            elif not col_a and col_c == "2" and col_h:
-                # Sub-wiersz (puste A, status=2, jest kontrahent) = multi-parowanie
+            elif not col_a and col_h:
+                # Sub-wiersz (puste A, jest kontrahent) = multi-parowanie
                 if last_main_num is not None:
                     if last_main_num not in multi_rows:
                         multi_rows.append(last_main_num)
@@ -1136,12 +1136,34 @@ def rebuild_sheet(worksheet, sections):
         for _ in range(SECTION_BLANK_ROWS.get(sep, 15)):
             all_new.append(_blank)
     _api(worksheet.clear)
-    # Reset formatowania calego arkusza (clear() nie czysci kolorow)
-    _api(worksheet.format, "A1:N500", {
+    # Reset formatowania — white dla wszystkich POZA status=3 (te zachowuja kolor uzytkownika)
+    _white_fmt = {
         "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
         "textFormat": {"bold": False},
         "horizontalAlignment": "CENTER",
-    })
+    }
+    _frozen3_set = set(frozen3_rows)
+    if not _frozen3_set:
+        _api(worksheet.format, "A1:N500", _white_fmt)
+    else:
+        _sheet_id   = worksheet._properties["sheetId"]
+        _fields     = ("userEnteredFormat.backgroundColor,"
+                       "userEnteredFormat.textFormat,"
+                       "userEnteredFormat.horizontalAlignment")
+        _w_reqs = []
+        _start  = 1
+        for _r in sorted(_frozen3_set) + [len(all_new) + 1]:
+            if _r > _start:
+                _w_reqs.append({"repeatCell": {
+                    "range": {"sheetId": _sheet_id,
+                              "startRowIndex": _start - 1, "endRowIndex": _r - 1,
+                              "startColumnIndex": 0,     "endColumnIndex": 14},
+                    "cell": {"userEnteredFormat": _white_fmt},
+                    "fields": _fields,
+                }})
+            _start = _r + 1
+        if _w_reqs:
+            _api(worksheet.spreadsheet.batch_update, {"requests": _w_reqs})
     if all_new:
         _api(worksheet.update, "A1", all_new, value_input_option="USER_ENTERED")
     row_fmts = []
@@ -1156,8 +1178,7 @@ def rebuild_sheet(worksheet, sections):
         row_fmts.append((row_num, {"backgroundColor": _KP_BG}))
     for row_num in kw_rows:
         row_fmts.append((row_num, {"backgroundColor": _KW_BG}))
-    for row_num in frozen3_rows:
-        row_fmts.append((row_num, {"backgroundColor": _FROZEN3_BG}))
+    # status=3: kolor nie jest nadpisywany — uzytkownik ustawia go recznie i jest zachowany
     _batch_format_rows(worksheet, row_fmts)
     # Jawnie ustaw format liczbowy dla wyciag_Kwota (kol F) — bez tego kol. dziedziczy
     # format DATE po starej kolumnie i liczby wyswietlaja sie jako daty.
@@ -1910,7 +1931,8 @@ def sync_parowanie(worksheet, transactions):
                 candidates.append((len(candidates), sep, i, row[0], amount, direction))
 
     # TX juz uzyte przez zamrozone wiersze — skanujemy frozen_backup
-    real_pre_used = _frozen_tx_pre_used(frozen_backup, transactions)
+    # statuses=("1","2"): sub-wiersze zamrozonych rodzicow maja teraz status=1 (nie status=2)
+    real_pre_used = _frozen_tx_pre_used(frozen_backup, transactions, statuses=("1", "2"))
 
     # Bankomat — wyklucz z parowania (tylko "bankomat" w kontrahencie)
     # Nie uzywamy "blik" w tytule/rodzaju — platnosci BLIK przez PayU/OLX
@@ -1982,7 +2004,10 @@ def sync_parowanie(worksheet, transactions):
             r[3] = klucz
             for col in range(4, 13):
                 r[col] = ""
-            r[13] = _ORANGE_MARKER
+            # rk_kp / rk_kw = platnosc gotowkowa — brak TX bankowej to norma, nie "brak pary"
+            # kolor zielony/rozowy nadaje rebuild_sheet; orange tu byloby mylace
+            if "_rk_kp" not in klucz and "_rk_kw" not in klucz:
+                r[13] = _ORANGE_MARKER
             sections[sep][row_idx] = r
             unmatched_count += 1
 
