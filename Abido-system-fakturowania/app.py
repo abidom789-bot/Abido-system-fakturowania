@@ -1939,6 +1939,18 @@ def sync_parowanie(worksheet, transactions):
         if order is not None:
             frozen_order[sep] = order
 
+    # ── SPRZEDAZ B=0: auto-status=2 (miesiac juz oplacony z gory — "sprawdzony") ─
+    for _i, _row in enumerate(sections[SEP_SPRZEDAZ]):
+        if not (_row[0] if _row else ""):
+            continue  # sub-wiersz
+        if str(_row[2]).strip() not in ("1", "9"):
+            continue  # juz zamrozony lub status=0 — nie ruszaj
+        _amt = _parse_amount(_row[1] if len(_row) > 1 else "")
+        if _amt is None or _amt == 0.0:
+            _row = list(_row) + [""] * max(0, 3 - len(_row))
+            _row[2] = "2"
+            sections[SEP_SPRZEDAZ][_i] = _row
+
     # ── Kandydaci do parowania ─────────────────────────────────────────────────
     _DIRECTION = {SEP_KOSZTOWE: -1, SEP_SPRZEDAZ: 1, SEP_WLASC: -1}
     candidates = []   # (flat_idx, section, row_idx_in_section, name, amount, direction)
