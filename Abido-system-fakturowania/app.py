@@ -1829,6 +1829,13 @@ def add_section_summary(worksheet):
             last_row -= 1
         start = last_row + 2
 
+    # Policz wiersze ze statusem 0 lub 1 (niezamkniete) — wszystkie sekcje, tylko col A niepuste
+    open_count = 0
+    for sec_rows in sections.values():
+        for row in sec_rows:
+            if str(row[0]).strip() and str(row[2] if len(row) > 2 else "").strip() in ("0", "1"):
+                open_count += 1
+
     # Buduj wiersze tabeli
     rows = [["Segment", "Ilość pozycji", "Suma kol. B (faktura)", "Suma wyciąg_Kwota"]]
     for sep in SECTION_ORDER:
@@ -1837,6 +1844,8 @@ def add_section_summary(worksheet):
     rows.append(["RAZEM", razem_count, razem_b, razem_f])
     rows.append(["", "", "", ""])   # separator
     rows.append(["wyciag_Kwota w arkuszu", wyciag_count, "", wyciag_sum])
+    rows.append(["", "", "", ""])   # separator
+    rows.append(["Do sprawdzenia (status 0/1)", open_count, "", ""])
 
     _api(worksheet.update, f"A{start}", rows, value_input_option="USER_ENTERED")
 
@@ -1859,6 +1868,14 @@ def add_section_summary(worksheet):
     wyciag_row = razem_row + 2                              # +1 pusty separator
     row_fmts.append((wyciag_row, {                          # wyciąg_Kwota
         "backgroundColor": {"red": 0.18, "green": 0.45, "blue": 0.75},
+        "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
+    }))
+    open_row = wyciag_row + 2                               # +1 pusty separator
+    open_bg  = ({"red": 0.20, "green": 0.78, "blue": 0.35}   # zielony — miesiąc zamknięty
+                if open_count == 0 else
+                {"red": 1.0,  "green": 0.76, "blue": 0.30})  # pomarańczowy — są do sprawdzenia
+    row_fmts.append((open_row, {
+        "backgroundColor": open_bg,
         "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
     }))
     _batch_format_rows(worksheet, row_fmts)
