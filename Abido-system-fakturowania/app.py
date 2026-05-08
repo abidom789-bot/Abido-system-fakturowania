@@ -143,6 +143,8 @@ def download_pdf(service, file_id):
 def extract_gross_amount(pdf_bytes):
     _NUM = r"([\d ]+[,.][\d]{2})"
     patterns = [
+        # "Kwota zapłaty (zaliczki) dokumentowana fakturą: X,XX" — KSeF EON faktury zaliczkowe
+        r"kwota\s+zap[lł]aty[^:]*:\s*" + _NUM,
         # "Do zapłaty" / "Pozostaje do zapłaty" / "Razem do zapłaty"
         #   — pomijamy 0,00 (Allegro: zapłacone przy zakupie)
         r"(?:razem\s+|pozostaje\s+)?do\s+zap[lł]aty[^\d]*?" + _NUM,
