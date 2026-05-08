@@ -1199,6 +1199,8 @@ def rebuild_sheet(worksheet, sections):
     # Jawnie ustaw format liczbowy dla wyciag_Kwota (kol F) — bez tego kol. dziedziczy
     # format DATE po starej kolumnie i liczby wyswietlaja sie jako daty.
     _api(worksheet.format, "F2:F500", {"numberFormat": {"type": "NUMBER", "pattern": "0.00"}})
+    # Przytnij tekst w wyciag_Imie_Nazwisko (kol M) — nie wylewa sie do pustej kol Uwagi
+    _api(worksheet.format, "M1:M500", {"wrapStrategy": "CLIP"})
 
 
 def apply_sync_logic(existing_rows, new_data, has_address=False, default_status="0"):
