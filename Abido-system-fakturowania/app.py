@@ -847,6 +847,14 @@ def generate_invoice_pdfs(drive_service, worksheet, subfolder_name, credentials=
         if not name:
             continue
 
+        # Kwota 0 = najemca zaplacil z gory za ten miesiac — faktura nie jest wystawiana
+        try:
+            _chk = abs(float(re.sub(r"[^\d,.]", "", str(amount_str)).replace(",", ".")))
+        except (ValueError, TypeError):
+            _chk = 0.0
+        if _chk == 0.0:
+            continue
+
         num += 1
         nj        = najemcy_lookup.get(name, {})
         address   = nj.get("address", "")
@@ -1940,6 +1948,9 @@ def sync_parowanie(worksheet, transactions):
                 continue   # sub-wiersz (puste A) — nie jest kandydatem
             if str(row[2]).strip() in ("1", "9"):
                 amount = _parse_amount(row[1] if len(row) > 1 else "")
+                # SPRZEDAZ z kwota=0: najemca zaplacil z gory — nieaktywny, pomijamy
+                if sep == SEP_SPRZEDAZ and (amount is None or amount == 0.0):
+                    continue
                 # Refaktura/zwrot w KOSZTOWE: kwota faktury ze znakiem (+) → kierunek +1 (wpływ)
                 # Uwaga: _parse_amount zwraca abs() — sprawdzamy znak z surowej wartosci
                 try:
