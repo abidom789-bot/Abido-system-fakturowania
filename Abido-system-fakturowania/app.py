@@ -3852,14 +3852,20 @@ if btn_czytaj:
             else:
                 with st.spinner("Pobieram liste plikow PDF..."):
                     files = list_pdfs_from_drive(drive_service, subfolder["id"])
+                    # Dodaj pliki z podfolderu ksef{name} jesli istnieje
+                    ksef_sub = find_subfolder(drive_service, subfolder["id"], f"ksef{name}")
+                    ksef_files = list_pdfs_from_drive(drive_service, ksef_sub["id"]) if ksef_sub else []
+                    all_files = files + ksef_files
 
-                if not files:
+                if not all_files:
                     st.warning(f"Brak plikow PDF w podfolderze '{name}'.")
                 else:
+                    if ksef_sub:
+                        st.info(f"Znaleziono podfolder ksef{name} — dołączono {len(ksef_files)} faktur KSeF.")
                     progress = st.progress(0, text="Analizuje faktury...")
                     files_data = []
-                    for i, f in enumerate(files):
-                        progress.progress((i + 1) / len(files), text=f"Analizuje: {f['name']}")
+                    for i, f in enumerate(all_files):
+                        progress.progress((i + 1) / len(all_files), text=f"Analizuje: {f['name']}")
                         brutto = extract_gross_amount(download_pdf(drive_service, f["id"]))
                         files_data.append({"key": f["name"], "brutto": brutto})
                     progress.empty()
