@@ -904,8 +904,8 @@ def read_all_sections(worksheet):
                 # SEP_NIEZNANE: brak faktury w A — wlaczamy jesli cokolwiek wypelnione
                 if any(c for c in row):
                     sections[current].append(row)
-            elif val:
-                # Normalny wiersz — klucz w kol A
+            elif val or str(row[2]).strip() == "3":
+                # Normalny wiersz — klucz w kol A, lub status=3 (beton) bez nazwy pliku
                 sections[current].append(row)
             elif len(row) > 4 and row[4]:
                 # Dodatkowy wiersz parowania: puste A i B, ale jest kontrahent w kol E
