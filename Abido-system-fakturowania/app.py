@@ -1122,7 +1122,8 @@ def rebuild_sheet(worksheet, sections):
             if col_a:
                 last_main_num = row_num   # zapamietaj glowny wiersz
                 # Fioletowy: glowny wiersz sparowany po nazwie, kwota niezgodna (col B ≠ col F)
-                if col_h and col_c in ("1", "9"):
+                # status=2 NIE chroni koloru — tylko status=3 jest beton
+                if col_h and col_c not in ("3",):
                     try:
                         _inv = abs(round(float(
                             re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", ".")
