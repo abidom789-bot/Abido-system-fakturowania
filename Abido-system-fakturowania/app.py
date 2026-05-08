@@ -319,7 +319,7 @@ def unpack_ksef_zips(service, ksef_folder_id, upload_service):
                         media_body=media,
                     ).execute()
                     extracted.append(pdf_name)
-            service.files().delete(fileId=zip_id).execute()
+            upload_service.files().delete(fileId=zip_id).execute()
             results.append({"zip_name": zip_name, "extracted": extracted, "status": "ok"})
         except Exception as exc:
             results.append({"zip_name": zip_name, "extracted": extracted,
