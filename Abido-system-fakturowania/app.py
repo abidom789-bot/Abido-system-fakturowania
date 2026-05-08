@@ -1191,7 +1191,7 @@ def apply_sync_logic(existing_rows, new_data, has_address=False, default_status=
         else:
             addr  = item.get("address", "") if has_address else ""
             dates = item.get("dates",   "") if has_address else ""
-            result.append([key, item.get("brutto", ""), default_status, "", addr, dates])
+            result.append([key, item.get("brutto", ""), item.get("status", default_status), "", addr, dates])
     # Zachowaj zweryfikowane wiersze ktorych plik zostal usuniety z Drive
     for key, row in verified.items():
         if key not in new_keys:
@@ -3865,11 +3865,15 @@ if btn_czytaj:
                     if ksef_sub:
                         st.info(f"Znaleziono podfolder ksef{name} — dołączono {len(ksef_files)} faktur KSeF.")
                     progress = st.progress(0, text="Analizuje faktury...")
+                    ksef_ids   = {f["id"] for f in ksef_files}
                     files_data = []
                     for i, f in enumerate(all_files):
                         progress.progress((i + 1) / len(all_files), text=f"Analizuje: {f['name']}")
                         brutto = extract_gross_amount(download_pdf(drive_service, f["id"]))
-                        files_data.append({"key": f["name"], "brutto": brutto})
+                        item   = {"key": f["name"], "brutto": brutto}
+                        if f["id"] in ksef_ids:
+                            item["status"] = "1"
+                        files_data.append(item)
                     progress.empty()
 
                     with st.spinner("Zapisuje do Google Sheets..."):
