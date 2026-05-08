@@ -1690,11 +1690,13 @@ def sync_parowanie(worksheet, transactions):
                 str(r[11]).strip() if len(r) > 11 else "")
 
     frozen_backup = {}
+    frozen_order  = {}   # {sep: ['f'|'a', ...]} — kolejnosc glownych wierszy dla SPRZEDAZ/WLASC
     for sep in SECTION_ORDER:
         if sep == SEP_INNE_RK:
             frozen_backup[sep] = []  # INNE_RK: sekcja nienaruszona, parowanie jej nie dotyka
             continue
         frozen, active = [], []
+        order = [] if sep in (SEP_SPRZEDAZ, SEP_WLASC) else None
         seen_sub_sigs = set()
         last_main_frozen  = False   # ostatni glowny to status=2 (frozen)
         last_main_status3 = False   # ostatni glowny to status=3 (beton)
@@ -1713,10 +1715,14 @@ def sync_parowanie(worksheet, transactions):
                     frozen.append(row)
                     last_main_frozen  = True
                     last_main_status3 = False
+                    if order is not None:
+                        order.append('f')
                 else:
                     active.append(row)
                     last_main_frozen  = False
                     last_main_status3 = (status_c == "3")
+                    if order is not None:
+                        order.append('a')
             else:
                 # Sub-wiersz (A='')
                 sub_status = str(row[2]).strip() if len(row) > 2 else ""
@@ -1735,6 +1741,8 @@ def sync_parowanie(worksheet, transactions):
                 # else: Rodzic aktywny → wyrzuc; pass 6 odtworzy sub-wiersz
         frozen_backup[sep] = frozen
         sections[sep] = active
+        if order is not None:
+            frozen_order[sep] = order
 
     # ── Kandydaci do parowania ─────────────────────────────────────────────────
     _DIRECTION = {SEP_KOSZTOWE: -1, SEP_SPRZEDAZ: 1, SEP_WLASC: -1}
@@ -1854,8 +1862,43 @@ def sync_parowanie(worksheet, transactions):
 
     # ── KROK N: Przywroc zamrozone wiersze do sekcji ──────────────────────────
     # Wiersze status=2 SA nietykalane — nie dostaja nowych sub-wierszy.
-    for sep in [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]:
-        sections[sep] = list(frozen_backup[sep]) + sections[sep]
+    # KOSZTOWE: zamrozone przed aktywnymi (kolejnosc nieistotna dla uzytkownika).
+    # SPRZEDAZ / WLASC: odtwarzamy ORYGINALNA kolejnosc wierszy — zakazane sortowanie.
+    def _row_blocks(rows):
+        """Dzieli liste wierszy na bloki: kazdy blok zaczyna sie od glownego wiersza (col A)."""
+        blocks, cur = [], None
+        for row in rows:
+            if row[0] if row else "":   # glowny wiersz
+                if cur is not None:
+                    blocks.append(cur)
+                cur = [row]
+            else:
+                if cur is None:
+                    cur = []            # osierocone sub-wiersze na poczatku
+                cur.append(row)
+        if cur is not None:
+            blocks.append(cur)
+        return blocks
+
+    sections[SEP_KOSZTOWE] = list(frozen_backup[SEP_KOSZTOWE]) + sections[SEP_KOSZTOWE]
+    for sep in (SEP_SPRZEDAZ, SEP_WLASC):
+        order  = frozen_order.get(sep, [])
+        if not order:
+            # Brak sledzonej kolejnosci — fallback: zamrozone przed aktywnymi
+            sections[sep] = list(frozen_backup[sep]) + sections[sep]
+            continue
+        f_blocks = _row_blocks(frozen_backup[sep])
+        a_blocks = _row_blocks(sections[sep])
+        fi = ai = 0
+        merged = []
+        for kind in order:
+            if kind == 'f' and fi < len(f_blocks):
+                merged.extend(f_blocks[fi]); fi += 1
+            elif kind == 'a' and ai < len(a_blocks):
+                merged.extend(a_blocks[ai]); ai += 1
+        while fi < len(f_blocks): merged.extend(f_blocks[fi]); fi += 1
+        while ai < len(a_blocks): merged.extend(a_blocks[ai]); ai += 1
+        sections[sep] = merged
 
     # ── SEP_NIEZNANE: zamrozone z backupu + niesparowane ─────────────────────
     # Deduplikuj po sygnaturze TX (na wypadek gdyby poprzedni bug zostawil kopie)
