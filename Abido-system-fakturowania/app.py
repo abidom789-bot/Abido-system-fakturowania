@@ -1355,11 +1355,12 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None, mul
       name_only: set(cand_idx)      — sparowane po nazwie bez zgodnosci kwoty (fioletowe)
       used_tx:   set(tx_idx)
     """
-    matched   = {}
-    name_only = set()
-    extras    = {}   # {flat_idx: [tx_idx, ...]} — dodatkowe TX do sub-wierszy (multi-parowanie)
-    used_tx   = set(pre_used) if pre_used else set()
-    blocked   = blocked or {}
+    matched          = {}
+    name_only        = set()
+    name_amt_matched = set()   # przebiegi 1 i 2: nazwisko/imie + kwota
+    extras           = {}   # {flat_idx: [tx_idx, ...]} — dodatkowe TX do sub-wierszy (multi-parowanie)
+    used_tx          = set(pre_used) if pre_used else set()
+    blocked          = blocked or {}
 
     def ok(cand_idx, tx_idx):
         """True jesli TX nie jest zablokowana dla tego kandydata."""
@@ -1392,6 +1393,7 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None, mul
         hits = [i for i in free_by_amount(idx, amount, direction) if _search_token(transactions[i], tokens[-1])]
         if hits:
             assign(idx, hits[0])
+            name_amt_matched.add(idx)
 
     # Przebieg 2: imie (pierwszy token) + kwota
     for idx, name, amount, direction in candidates:
@@ -1403,6 +1405,7 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None, mul
         hits = [i for i in free_by_amount(idx, amount, direction) if _search_token(transactions[i], tokens[0])]
         if hits:
             assign(idx, hits[0])
+            name_amt_matched.add(idx)
 
     # Przebieg 3: nazwisko (bez kwoty) — WSZYSTKIE pasujace TX → multi-parowanie (fioletowe)
     for idx, name, amount, direction in candidates:
@@ -1466,7 +1469,7 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None, mul
             for tx_i in extra_hits:
                 used_tx.add(tx_i)
 
-    return matched, name_only, extras, used_tx
+    return matched, name_only, name_amt_matched, extras, used_tx
 
 
 def _build_paired_row(existing_row, tx, klucz, uwagi=""):
@@ -1791,7 +1794,7 @@ def sync_parowanie(worksheet, transactions):
 
     flat = [(c[0], c[3], c[4], c[5]) for c in candidates]
     multi_eligible = {c[0] for c in candidates if c[1] in (SEP_SPRZEDAZ, SEP_WLASC)}
-    matched, name_only, extras, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked, multi_eligible=multi_eligible)
+    matched, name_only, name_amt_matched, extras, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked, multi_eligible=multi_eligible)
     # Bankomat TX (nie-zamrozone) ida do SEP_INNE_RK — usun z used_tx
     used_tx -= bankomat_excluded
     # TX wierszy status=3 — juz sa w arkuszu, nie trafiaja do unmatched_rows
@@ -1813,6 +1816,8 @@ def sync_parowanie(worksheet, transactions):
             inv_amount = _parse_amount(row[1] if len(row) > 1 else "")
             if flat_idx in name_only or (inv_amount is not None and round(inv_amount, 2) != tx_amount):
                 r[13] = _PURPLE_MARKER
+            elif flat_idx in name_amt_matched and sep in (SEP_SPRZEDAZ, SEP_WLASC):
+                r[2] = "2"
             sections[sep][row_idx] = r
         else:
             klucz = assign_klucz_ksiegowy(sep, None, row[1] if len(row) > 1 else "", row[0] if row else "")
