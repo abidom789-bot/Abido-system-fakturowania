@@ -1101,6 +1101,7 @@ def rebuild_sheet(worksheet, sections):
     kp_rows       = []   # wiersze z _rk_kp w kluczu (col D)
     kw_rows       = []   # wiersze z _rk_kw w kluczu (col D)
     multi_rows    = []   # wiersze nalezace do multi-parowania (1 faktura → kilka TX)
+    purple_rows   = []   # sparowane po nazwie bez zgodnosci kwoty (col B ≠ col F)
     frozen3_rows  = []   # wiersze ze statusem=3 (nietykalny kolor i pozycja)
     last_main_num = None # numer wiersza ostatniego "glownego" wiersza (col A niepuste)
     for sep in SECTION_ORDER:
@@ -1120,6 +1121,19 @@ def rebuild_sheet(worksheet, sections):
                 continue   # status=3: nie dotykaj koloru ani pozycji
             if col_a:
                 last_main_num = row_num   # zapamietaj glowny wiersz
+                # Fioletowy: glowny wiersz sparowany po nazwie, kwota niezgodna (col B ≠ col F)
+                if col_h and col_c in ("1", "9"):
+                    try:
+                        _inv = abs(round(float(
+                            re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", ".")
+                        ), 2))
+                        _tx  = abs(round(float(
+                            re.sub(r"[^\d,.\-]", "", str(row[5] if len(row) > 5 else "")).replace(",", ".")
+                        ), 2))
+                        if _inv and _tx and _inv != _tx:
+                            purple_rows.append(row_num)
+                    except (ValueError, TypeError):
+                        pass
             elif not col_a and col_h:
                 # Sub-wiersz (puste A, jest kontrahent) = multi-parowanie
                 if last_main_num is not None:
@@ -1178,6 +1192,8 @@ def rebuild_sheet(worksheet, sections):
         row_fmts.append((row_num, {"backgroundColor": _KP_BG}))
     for row_num in kw_rows:
         row_fmts.append((row_num, {"backgroundColor": _KW_BG}))
+    for row_num in purple_rows:
+        row_fmts.append((row_num, {"backgroundColor": _PURPLE_BG}))
     # status=3: kolor nie jest nadpisywany — uzytkownik ustawia go recznie i jest zachowany
     _batch_format_rows(worksheet, row_fmts)
     # Jawnie ustaw format liczbowy dla wyciag_Kwota (kol F) — bez tego kol. dziedziczy
