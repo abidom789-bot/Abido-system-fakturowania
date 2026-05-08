@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import zipfile
 import time
 import calendar
 import unicodedata
@@ -279,6 +280,49 @@ def rename_ksef_invoices(service, ksef_folder_id):
             results.append({"old_name": old_name, "new_name": None,
                             "status": f"blad_rename: {exc}", "is_duplicate": False})
 
+    return results
+
+
+def unpack_ksef_zips(service, ksef_folder_id):
+    """
+    Szuka plików ZIP w folderze KSeF, wypakowuje PDF-y i wgrywa je do tego folderu,
+    po czym usuwa ZIPy.
+    Zwraca listę słowników: {zip_name, extracted: [str, ...], status}
+      status: 'ok' | 'blad: ...'
+    """
+    # Pobierz wszystkie pliki w folderze i odfiltruj ZIPy po nazwie
+    query = f"'{ksef_folder_id}' in parents and trashed=false"
+    resp  = service.files().list(q=query, fields="files(id, name)").execute()
+    zips  = [f for f in resp.get("files", []) if f["name"].lower().endswith(".zip")]
+
+    results = []
+    for zf in zips:
+        zip_name  = zf["name"]
+        zip_id    = zf["id"]
+        extracted = []
+        try:
+            zip_bytes = download_pdf(service, zip_id)   # download_pdf pobiera dowolny plik
+            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+                for member in z.namelist():
+                    if not member.lower().endswith(".pdf"):
+                        continue
+                    pdf_name  = os.path.basename(member)   # usuń ewentualne podfoldery
+                    pdf_bytes = z.read(member)
+                    media     = MediaIoBaseUpload(
+                        io.BytesIO(pdf_bytes),
+                        mimetype="application/pdf",
+                        resumable=False,
+                    )
+                    service.files().create(
+                        body={"name": pdf_name, "parents": [ksef_folder_id]},
+                        media_body=media,
+                    ).execute()
+                    extracted.append(pdf_name)
+            service.files().delete(fileId=zip_id).execute()
+            results.append({"zip_name": zip_name, "extracted": extracted, "status": "ok"})
+        except Exception as exc:
+            results.append({"zip_name": zip_name, "extracted": extracted,
+                            "status": f"blad: {exc}"})
     return results
 
 
@@ -3859,6 +3903,21 @@ if btn_ksef:
                 if ksef_folder is None:
                     st.error(f"Nie znaleziono podfolderu '{ksef_folder_name}' wewnątrz '{name}'.")
                 else:
+                    # ── Krok 1: Rozpakuj ZIPy ─────────────────────────────────
+                    with st.spinner("Szukam i rozpakowuję pliki ZIP..."):
+                        unpack_results = unpack_ksef_zips(drive_service, ksef_folder["id"])
+
+                    if unpack_results:
+                        total_extracted = sum(len(r["extracted"]) for r in unpack_results)
+                        zip_errors = [r for r in unpack_results if r["status"].startswith("blad")]
+                        st.info(
+                            f"Rozpakowano {len(unpack_results)} ZIP(ów), "
+                            f"wyciągnięto {total_extracted} PDF(ów)."
+                        )
+                        for r in zip_errors:
+                            st.error(f"Błąd ZIP '{r['zip_name']}': {r['status']}")
+
+                    # ── Krok 2: Zmień nazwy PDF-ów ────────────────────────────
                     with st.spinner("Przetwarzam i zmieniam nazwy plików KSeF..."):
                         results = rename_ksef_invoices(drive_service, ksef_folder["id"])
 
