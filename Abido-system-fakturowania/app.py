@@ -1932,6 +1932,7 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     rows.append(["", "", "", ""])   # separator
     rows.append(["Koszty (kos_)", "", kos_sum, ""])
     rows.append(["Przychody (prz_)", "", prz_sum, ""])
+    rows.append(["Bilans (prz_ + kos_)", "", round(prz_sum + kos_sum, 2), ""])
 
     _api(worksheet.update, f"A{start}", rows, value_input_option="USER_ENTERED")
 
@@ -1986,6 +1987,7 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     bilans_start = open_row + (8 if bank_tx_count is not None else 5)
     row_fmts.append((bilans_start,     bilans_style))   # Koszty
     row_fmts.append((bilans_start + 1, bilans_style))   # Przychody
+    row_fmts.append((bilans_start + 2, bilans_style))   # Bilans
     _batch_format_rows(worksheet, row_fmts)
 
     return bank_diag
