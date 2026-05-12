@@ -1815,20 +1815,30 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         last_row = len(all_vals)
         while last_row > 0 and not any(c for c in all_vals[last_row - 1]):
             last_row -= 1
-        start = last_row + 2
+        start = last_row + 3
 
     # Policz wiersze ze statusem 0 lub 1 (niezamkniete)
     # Sekcje fakturowe (col A niepuste) + NIEZNANE (col A puste, liczymy po col C)
-    open_count = 0
+    open_count   = 0
+    status0_count = 0
+    status1_count = 0
     for sep, sec_rows in sections.items():
         for row in sec_rows:
             status = str(row[2] if len(row) > 2 else "").strip()
             if status not in ("0", "1"):
                 continue
             if sep == SEP_NIEZNANE:
-                open_count += 1   # NIEZNANE: każdy wiersz z status=1 liczymy
+                open_count += 1
+                if status == "0":
+                    status0_count += 1
+                else:
+                    status1_count += 1
             elif str(row[0]).strip():
-                open_count += 1   # pozostałe sekcje: tylko główne wiersze (col A niepuste)
+                open_count += 1
+                if status == "0":
+                    status0_count += 1
+                else:
+                    status1_count += 1
 
     # Dane z pliku lista_operacji (opcjonalnie)
     bank_tx_count = None
@@ -1893,6 +1903,8 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     rows.append(["wyciag_Kwota w arkuszu", wyciag_count, "", wyciag_sum])
     rows.append(["", "", "", ""])   # separator
     rows.append(["Do sprawdzenia (status 0/1)", open_count, "", ""])
+    rows.append(["  w tym status 0 — niezweryfikowane", status0_count, "", ""])
+    rows.append(["  w tym status 1 — oczekują na zamknięcie", status1_count, "", ""])
     if bank_tx_count is not None:
         rows.append(["", "", "", ""])   # separator
         rows.append([f"lista_operacji_{subfolder_name}.xls — liczba TX", bank_tx_count, "", ""])
@@ -1930,13 +1942,20 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
         "numberFormat": {"type": "NUMBER", "pattern": "0"},   # liczba całkowita, bez waluty
     }))
+    sub_style = {
+        "backgroundColor": {"red": 0.95, "green": 0.95, "blue": 0.95},
+        "textFormat": {"bold": False},
+        "numberFormat": {"type": "NUMBER", "pattern": "0"},
+    }
+    row_fmts.append((open_row + 1, sub_style))   # status 0
+    row_fmts.append((open_row + 2, sub_style))   # status 1
     if bank_tx_count is not None:
         bank_style = {
             "backgroundColor": {"red": 0.13, "green": 0.55, "blue": 0.55},
             "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
         }
-        row_fmts.append((open_row + 2, bank_style))   # liczba TX
-        row_fmts.append((open_row + 3, bank_style))   # suma kwot
+        row_fmts.append((open_row + 4, bank_style))   # liczba TX  (+1 separator +2 sub-wiersze)
+        row_fmts.append((open_row + 5, bank_style))   # suma kwot
     _batch_format_rows(worksheet, row_fmts)
 
     return bank_diag
