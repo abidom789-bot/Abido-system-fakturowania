@@ -1833,6 +1833,7 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     # Dane z pliku lista_operacji (opcjonalnie)
     bank_tx_count = None
     bank_tx_sum   = None
+    bank_diag     = None
     if service and subfolder_name:
         bank_file = find_bank_file(service, subfolder_name)
         if bank_file:
@@ -1840,6 +1841,47 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
             transactions = parse_bank_statement(xls_bytes)
             bank_tx_count = len(transactions)
             bank_tx_sum   = round(sum(t["kwota"] for t in transactions), 2)
+
+            # Diagnostyka: porównanie TX z pliku z TX w arkuszu
+            def _tx_sig_local(tx):
+                return (round(float(tx["kwota"]), 2), _norm_date(tx["data_ks"]),
+                        str(tx["nr_rachunku"]).strip(), str(tx["tytul"]).strip()[:30])
+
+            sheet_sig_counter = Counter()
+            for _sec_rows in sections.values():
+                for _r in _sec_rows:
+                    if len(_r) > 4 and str(_r[4]).strip():
+                        try:
+                            _kw = round(float(re.sub(r"[^\d,.\-]", "", str(_r[5])).replace(",", ".")), 2) \
+                                  if len(_r) > 5 and str(_r[5]).strip() else 0.0
+                        except (ValueError, TypeError):
+                            _kw = 0.0
+                        _sig = (
+                            _kw,
+                            _norm_date(_r[6]) if len(_r) > 6 else "",
+                            str(_r[11]).strip() if len(_r) > 11 else "",
+                            str(_r[7]).strip()[:30] if len(_r) > 7 else "",
+                        )
+                        sheet_sig_counter[_sig] += 1
+
+            file_sig_counter = Counter(_tx_sig_local(tx) for tx in transactions)
+            missing_sigs = file_sig_counter - sheet_sig_counter
+            dupe_sigs    = sheet_sig_counter - file_sig_counter
+
+            missing_txs   = []
+            duplicate_txs = []
+            used_m = Counter()
+            used_d = Counter()
+            for tx in transactions:
+                sig = _tx_sig_local(tx)
+                if missing_sigs[sig] > used_m[sig]:
+                    missing_txs.append(tx)
+                    used_m[sig] += 1
+                elif dupe_sigs[sig] > used_d[sig]:
+                    duplicate_txs.append(tx)
+                    used_d[sig] += 1
+
+            bank_diag = {"missing": missing_txs, "duplicates": duplicate_txs}
 
     # Buduj wiersze tabeli
     rows = [["Segment", "Ilość pozycji", "Suma kol. B (faktura)", "Suma wyciąg_Kwota"]]
@@ -1896,6 +1938,8 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         row_fmts.append((open_row + 2, bank_style))   # liczba TX
         row_fmts.append((open_row + 3, bank_style))   # suma kwot
     _batch_format_rows(worksheet, row_fmts)
+
+    return bank_diag
 
 
 def sync_parowanie(worksheet, transactions):
@@ -3704,8 +3748,30 @@ if btn_podsumowanie:
             worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(name)
             drive_service = build("drive", "v3", credentials=creds)
             with st.spinner("Dodaję podsumowanie..."):
-                add_section_summary(worksheet, service=drive_service, subfolder_name=name)
+                diag = add_section_summary(worksheet, service=drive_service, subfolder_name=name)
             st.success("Podsumowanie segmentów dodane na dole arkusza.")
+            if diag is not None:
+                missing   = diag.get("missing", [])
+                duplicates = diag.get("duplicates", [])
+                if not missing and not duplicates:
+                    st.success("✅ Wszystkie TX z listy operacji są w arkuszu (bez duplikatów).")
+                if missing:
+                    st.warning(f"⚠️ Brak w arkuszu — {len(missing)} TX z listy operacji:")
+                    st.dataframe(
+                        [{"Kwota": tx["kwota"], "Data KS": tx["data_ks"],
+                          "Kontrahent": tx["kontrahent"], "Tytuł": tx["tytul"][:60]}
+                         for tx in missing],
+                        use_container_width=True,
+                    )
+                if duplicates:
+                    st.warning(f"⚠️ Duplikaty w arkuszu — {len(duplicates)} TX z listy operacji:")
+                    st.dataframe(
+                        [{"Kwota": tx["kwota"], "Data KS": tx["data_ks"],
+                          "Kontrahent": tx["kontrahent"], "Tytuł": tx["tytul"][:60],
+                          "Status": "DUPLIKAT"}
+                         for tx in duplicates],
+                        use_container_width=True,
+                    )
         except gspread.exceptions.WorksheetNotFound:
             st.error(f"Arkusz '{name}' nie istnieje.")
         except Exception as e:
