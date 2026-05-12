@@ -1817,6 +1817,25 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
             last_row -= 1
         start = last_row + 3
 
+    # Sumy bilansowe po kluczach kos_ i prz_
+    kos_sum = 0.0
+    prz_sum = 0.0
+    for _sec_rows in sections.values():
+        for _r in _sec_rows:
+            _klucz = str(_r[3]).strip() if len(_r) > 3 else ""
+            if not _klucz:
+                continue
+            try:
+                _b = float(re.sub(r"[^\d,.\-]", "", str(_r[1] if len(_r) > 1 else "")).replace(",", "."))
+            except (ValueError, TypeError):
+                _b = 0.0
+            if _klucz.startswith("kos_"):
+                kos_sum += _b
+            elif _klucz.startswith("prz_"):
+                prz_sum += _b
+    kos_sum = round(kos_sum, 2)
+    prz_sum = round(prz_sum, 2)
+
     # Policz wiersze ze statusem 0 lub 1 (niezamkniete)
     # Sekcje fakturowe (col A niepuste) + NIEZNANE (col A puste, liczymy po col C)
     open_count   = 0
@@ -1909,6 +1928,10 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         rows.append(["", "", "", ""])   # separator
         rows.append([f"lista_operacji_{subfolder_name}.xls — liczba TX", bank_tx_count, "", ""])
         rows.append([f"lista_operacji_{subfolder_name}.xls — suma kwot", "", "", bank_tx_sum])
+    rows.append(["", "", "", ""])   # separator
+    rows.append(["", "", "", ""])   # separator
+    rows.append(["Koszty (kos_)", "", kos_sum, ""])
+    rows.append(["Przychody (prz_)", "", prz_sum, ""])
 
     _api(worksheet.update, f"A{start}", rows, value_input_option="USER_ENTERED")
 
@@ -1956,6 +1979,13 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         }
         row_fmts.append((open_row + 4, bank_style))   # liczba TX  (+1 separator +2 sub-wiersze)
         row_fmts.append((open_row + 5, bank_style))   # suma kwot
+    bilans_style = {
+        "backgroundColor": {"red": 0.25, "green": 0.25, "blue": 0.50},
+        "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
+    }
+    bilans_start = open_row + (8 if bank_tx_count is not None else 5)
+    row_fmts.append((bilans_start,     bilans_style))   # Koszty
+    row_fmts.append((bilans_start + 1, bilans_style))   # Przychody
     _batch_format_rows(worksheet, row_fmts)
 
     return bank_diag
