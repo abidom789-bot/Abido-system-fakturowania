@@ -3000,7 +3000,7 @@ def search_najemca_sheets(spreadsheet, imie, nazwisko, tabs, mode="AND"):
                     "Kwota":         padded[1],
                     "Status":        padded[2],
                     "Raport_kasowy": padded[3],
-                    "Klucz":         padded[6],
+                    "Klucz":         padded[3],
                     "wyciag_Kwota":  padded[8],
                     "Data":          padded[9],
                 })
