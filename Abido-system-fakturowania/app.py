@@ -1742,7 +1742,7 @@ _SEP_LABELS = {
 }
 
 
-def add_section_summary(worksheet):
+def add_section_summary(worksheet, service=None, subfolder_name=None):
     """Dodaje tabelkę podsumowania na dole arkusza (4 kolumny):
     Segment | Ilość pozycji | Suma kol. B (faktura) | Suma wyciąg_Kwota
 
@@ -1830,6 +1830,17 @@ def add_section_summary(worksheet):
             elif str(row[0]).strip():
                 open_count += 1   # pozostałe sekcje: tylko główne wiersze (col A niepuste)
 
+    # Dane z pliku lista_operacji (opcjonalnie)
+    bank_tx_count = None
+    bank_tx_sum   = None
+    if service and subfolder_name:
+        bank_file = find_bank_file(service, subfolder_name)
+        if bank_file:
+            xls_bytes = download_pdf(service, bank_file["id"])
+            transactions = parse_bank_statement(xls_bytes)
+            bank_tx_count = len(transactions)
+            bank_tx_sum   = round(sum(t["kwota"] for t in transactions), 2)
+
     # Buduj wiersze tabeli
     rows = [["Segment", "Ilość pozycji", "Suma kol. B (faktura)", "Suma wyciąg_Kwota"]]
     for sep in SECTION_ORDER:
@@ -1840,6 +1851,10 @@ def add_section_summary(worksheet):
     rows.append(["wyciag_Kwota w arkuszu", wyciag_count, "", wyciag_sum])
     rows.append(["", "", "", ""])   # separator
     rows.append(["Do sprawdzenia (status 0/1)", open_count, "", ""])
+    if bank_tx_count is not None:
+        rows.append(["", "", "", ""])   # separator
+        rows.append([f"lista_operacji_{subfolder_name}.xls — liczba TX", bank_tx_count, "", ""])
+        rows.append([f"lista_operacji_{subfolder_name}.xls — suma kwot", "", "", bank_tx_sum])
 
     _api(worksheet.update, f"A{start}", rows, value_input_option="USER_ENTERED")
 
@@ -1873,6 +1888,13 @@ def add_section_summary(worksheet):
         "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
         "numberFormat": {"type": "NUMBER", "pattern": "0"},   # liczba całkowita, bez waluty
     }))
+    if bank_tx_count is not None:
+        bank_style = {
+            "backgroundColor": {"red": 0.13, "green": 0.55, "blue": 0.55},
+            "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
+        }
+        row_fmts.append((open_row + 2, bank_style))   # liczba TX
+        row_fmts.append((open_row + 3, bank_style))   # suma kwot
     _batch_format_rows(worksheet, row_fmts)
 
 
@@ -3680,8 +3702,9 @@ if btn_podsumowanie:
             creds  = get_credentials()
             client = gspread.authorize(creds)
             worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(name)
+            drive_service = build("drive", "v3", credentials=creds)
             with st.spinner("Dodaję podsumowanie..."):
-                add_section_summary(worksheet)
+                add_section_summary(worksheet, service=drive_service, subfolder_name=name)
             st.success("Podsumowanie segmentów dodane na dole arkusza.")
         except gspread.exceptions.WorksheetNotFound:
             st.error(f"Arkusz '{name}' nie istnieje.")
