@@ -1030,23 +1030,11 @@ def _migrate_row(row):
     """Konwertuje stary wiersz 17-kolumnowy (D/E/F = raport_kasowy/Adres/Data_umowy)
     do nowego 14-kolumnowego (A,B,C + Klucz..Uwagi).
     Wywolywane automatycznie przy odczycie — jednorazowa migracja bez akcji uzytkownika.
-    Dodatkowo wykrywa zepsute wiersze status=2 gdzie pos 3 trzyma date zamiast klucza
-    i odmraza je (status=1) z wyczyszczonymi danymi bankowymi.
     """
     if len(row) > 14:
         row = list(row[:3]) + list(row[6:])
     else:
         row = list(row)
-    # Wykryj stary format: status=2 ale klucz (pos 3) nie wyglada jak klucz
-    if len(row) >= 4 and str(row[2]).strip() == "2":
-        klucz = str(row[3]).strip() if row[3] is not None else ""
-        if not re.match(r'^[a-z][a-z_]+$', klucz):
-            # Odmroz — wyczysc dane bankowe, pozwol ponownemu parowaniu
-            row = row + [""] * max(0, 14 - len(row))
-            row[2] = "1"
-            for i in range(3, 14):
-                row[i] = ""
-            return row[:14]
     return row
 
 
