@@ -1838,7 +1838,6 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
 
     # Policz wiersze ze statusem 0 lub 1 (niezamkniete)
     # Sekcje fakturowe (col A niepuste) + NIEZNANE (col A puste, liczymy po col C)
-    open_count   = 0
     status0_count = 0
     status1_count = 0
     for sep, sec_rows in sections.items():
@@ -1847,13 +1846,11 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
             if status not in ("0", "1"):
                 continue
             if sep == SEP_NIEZNANE:
-                open_count += 1
                 if status == "0":
                     status0_count += 1
                 else:
                     status1_count += 1
             elif str(row[0]).strip():
-                open_count += 1
                 if status == "0":
                     status0_count += 1
                 else:
@@ -1921,13 +1918,12 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     rows.append(["", "", "", ""])   # separator
     rows.append(["wyciag_Kwota w arkuszu", wyciag_count, "", wyciag_sum])
     rows.append(["", "", "", ""])   # separator
-    rows.append(["Do sprawdzenia (status 0/1)", open_count, "", ""])
-    rows.append(["  w tym status 0 — niezweryfikowane", status0_count, "", ""])
-    rows.append(["  w tym status 1 — oczekują na zamknięcie", status1_count, "", ""])
+    rows.append(["Status 0", status0_count, "", ""])
+    rows.append(["Status 1", status1_count, "", ""])
     if bank_tx_count is not None:
         rows.append(["", "", "", ""])   # separator
-        rows.append([f"lista_operacji_{subfolder_name}.xls — liczba TX", bank_tx_count, "", ""])
-        rows.append([f"lista_operacji_{subfolder_name}.xls — suma kwot", "", "", bank_tx_sum])
+        rows.append(["Wyciąg — liczba TX", bank_tx_count, "", ""])
+        rows.append(["Wyciąg — suma kwot", "", "", bank_tx_sum])
     rows.append(["", "", "", ""])   # separator
     rows.append(["", "", "", ""])   # separator
     rows.append(["Koszty (kos_)", "", kos_sum, ""])
@@ -1958,33 +1954,32 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
     }))
     open_row = wyciag_row + 2                               # +1 pusty separator
-    open_bg  = ({"red": 0.20, "green": 0.78, "blue": 0.35}   # zielony — miesiąc zamknięty
-                if open_count == 0 else
-                {"red": 1.0,  "green": 0.76, "blue": 0.30})  # pomarańczowy — są do sprawdzenia
-    row_fmts.append((open_row, {
-        "backgroundColor": open_bg,
-        "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
-        "numberFormat": {"type": "NUMBER", "pattern": "0"},   # liczba całkowita, bez waluty
+    _green  = {"red": 0.20, "green": 0.78, "blue": 0.35}
+    _orange = {"red": 1.0,  "green": 0.76, "blue": 0.30}
+    _status_fmt = {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}}
+    _num_fmt = {"type": "NUMBER", "pattern": "0"}
+    row_fmts.append((open_row, {                            # Status 0
+        "backgroundColor": _green if status0_count == 0 else _orange,
+        "textFormat": _status_fmt,
+        "numberFormat": _num_fmt,
     }))
-    sub_style = {
-        "backgroundColor": {"red": 0.95, "green": 0.95, "blue": 0.95},
-        "textFormat": {"bold": False},
-        "numberFormat": {"type": "NUMBER", "pattern": "0"},
-    }
-    row_fmts.append((open_row + 1, sub_style))   # status 0
-    row_fmts.append((open_row + 2, sub_style))   # status 1
+    row_fmts.append((open_row + 1, {                        # Status 1
+        "backgroundColor": _green if status1_count == 0 else _orange,
+        "textFormat": _status_fmt,
+        "numberFormat": _num_fmt,
+    }))
     if bank_tx_count is not None:
         bank_style = {
             "backgroundColor": {"red": 0.13, "green": 0.55, "blue": 0.55},
             "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
         }
-        row_fmts.append((open_row + 4, bank_style))   # liczba TX  (+1 separator +2 sub-wiersze)
-        row_fmts.append((open_row + 5, bank_style))   # suma kwot
+        row_fmts.append((open_row + 3, bank_style))   # liczba TX  (+1 separator +2 status-wiersze)
+        row_fmts.append((open_row + 4, bank_style))   # suma kwot
     bilans_style = {
         "backgroundColor": {"red": 0.25, "green": 0.25, "blue": 0.50},
         "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
     }
-    bilans_start = open_row + (8 if bank_tx_count is not None else 5)
+    bilans_start = open_row + (7 if bank_tx_count is not None else 4)
     row_fmts.append((bilans_start,     bilans_style))   # Koszty
     row_fmts.append((bilans_start + 1, bilans_style))   # Przychody
     row_fmts.append((bilans_start + 2, bilans_style))   # Bilans
