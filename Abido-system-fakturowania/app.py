@@ -1866,23 +1866,26 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     mat_bil = {pfx: round(sum(matrix[pfx].values()), 2) for pfx in matrix}
 
     # ── STATUS 0/1 ───────────────────────────────────────────────────────────
-    status0_count = 0; status1_count = 0; null_klucz_count = 0
+    status0_count = 0; status1_count = 0
+    status_null_count = 0; klucz_null_count = 0; klucz_nieznane_count = 0
     for sep, sec_rows in sections.items():
         for row in sec_rows:
             status = str(row[2] if len(row) > 2 else "").strip()
             klucz  = str(row[3] if len(row) > 3 else "").strip()
-            has_content = (str(row[0]).strip() if sep != SEP_NIEZNANE
-                           else str(row[4]).strip() if len(row) > 4 else "")
-            if status not in ("0", "1"):
+            has_content = (str(row[4]).strip() if sep == SEP_NIEZNANE and len(row) > 4
+                           else str(row[0]).strip() if row else "")
+            if not has_content:
                 continue
-            if sep == SEP_NIEZNANE:
-                if status == "0": status0_count += 1
-                else:             status1_count += 1
-            elif str(row[0]).strip():
-                if status == "0": status0_count += 1
-                else:             status1_count += 1
-            if has_content and not klucz:
-                null_klucz_count += 1
+            if status == "0":
+                status0_count += 1
+            elif status == "1":
+                status1_count += 1
+            elif not status:
+                status_null_count += 1
+            if not klucz:
+                klucz_null_count += 1
+            elif klucz.startswith("nieznany_"):
+                klucz_nieznane_count += 1
 
     # ── WYCIĄG W ARKUSZU ─────────────────────────────────────────────────────
     wyciag_count = 0; wyciag_sum = 0.0
@@ -1966,10 +1969,12 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     E = ""
     rows = []
 
-    # Status 0/1/Null
-    rows.append(["Status 0", status0_count, E, E, E, E, E])
-    rows.append(["Status 1", status1_count, E, E, E, E, E])
-    rows.append(["Status Null", null_klucz_count, E, E, E, E, E])
+    # Status 0/1/Null + Klucz Null/Nieznane
+    rows.append(["Status 0",        status0_count,        E, E, E, E, E])
+    rows.append(["Status 1",        status1_count,        E, E, E, E, E])
+    rows.append(["Status Null",     status_null_count,    E, E, E, E, E])
+    rows.append(["Klucz Null",      klucz_null_count,     E, E, E, E, E])
+    rows.append(["Klucz Nieznane",  klucz_nieznane_count, E, E, E, E, E])
     rows.append([E] * 7)
 
     # Wyciąg kontrola
@@ -2033,16 +2038,15 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     row_fmts = []
     cur = start
 
-    # Status 0/1/Null
+    # Status 0/1/Null + Klucz Null/Nieznane
     _yellow = {"red": 0.99, "green": 0.90, "blue": 0.40}
     _bold_dark = {"bold": True, "foregroundColor": {"red": 0.1, "green": 0.1, "blue": 0.1}}
-    row_fmts.append((cur,     {"backgroundColor": _green if status0_count == 0 else _orange,
-                               "textFormat": _bold_white}))
-    row_fmts.append((cur + 1, {"backgroundColor": _green if status1_count == 0 else _orange,
-                               "textFormat": _bold_white}))
-    row_fmts.append((cur + 2, {"backgroundColor": _yellow if null_klucz_count == 0 else _orange,
-                               "textFormat": _bold_dark}))
-    cur += 4  # 3 status + 1 separator
+    row_fmts.append((cur,     {"backgroundColor": _green  if status0_count == 0        else _orange, "textFormat": _bold_white}))
+    row_fmts.append((cur + 1, {"backgroundColor": _green  if status1_count == 0        else _orange, "textFormat": _bold_white}))
+    row_fmts.append((cur + 2, {"backgroundColor": _yellow if status_null_count == 0    else _orange, "textFormat": _bold_dark}))
+    row_fmts.append((cur + 3, {"backgroundColor": _yellow if klucz_null_count == 0     else _orange, "textFormat": _bold_dark}))
+    row_fmts.append((cur + 4, {"backgroundColor": _yellow if klucz_nieznane_count == 0 else _orange, "textFormat": _bold_dark}))
+    cur += 6  # 5 wierszy + 1 separator
 
     # Wyciąg kontrola
     row_fmts.append((cur, _wyciag_style))
