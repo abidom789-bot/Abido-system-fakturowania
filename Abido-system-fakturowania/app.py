@@ -3102,10 +3102,11 @@ def search_najemca_sheets(spreadsheet, imie, nazwisko, tabs, mode="AND"):
             if row[0] == HEADER_ROW[0] or _match_separator(row[0]):
                 continue
             padded = row + [""] * max(0, 14 - len(row))
-            col_a     = _normalize_name_for_filename(padded[0])
-            col_klucz = _normalize_name_for_filename(padded[3])
-            col_wyc   = _normalize_name_for_filename(padded[12])
-            if _col_hit(col_a) or _col_hit(col_klucz) or _col_hit(col_wyc):
+            col_a          = _normalize_name_for_filename(padded[0])
+            col_klucz      = _normalize_name_for_filename(padded[3])
+            col_kontrahent = _normalize_name_for_filename(padded[4])
+            col_wyc        = _normalize_name_for_filename(padded[12])
+            if _col_hit(col_a) or _col_hit(col_klucz) or _col_hit(col_kontrahent) or _col_hit(col_wyc):
                 entry = {"Zakladka": tab}
                 for _ci, _col_name in enumerate(HEADER_ROW):
                     entry[_col_name] = padded[_ci] if _ci < len(padded) else ""
