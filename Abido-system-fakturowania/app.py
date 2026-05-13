@@ -3408,12 +3408,12 @@ with st.expander("Bilans najemcy", expanded=False):
             help="AND: oba muszą pasować  |  OR: wystarczy jedno",
         )
 
-    _nj_month_opts = [f"{m:02d}/{y}" for y in range(2024, 2028) for m in range(1, 13)]
+    _nj_month_opts = [f"{m:02d}/{y}" for y in range(2000, 2100) for m in range(1, 13)]
     nj_dc1, nj_dc2, nj_bc = st.columns([2, 2, 1])
     with nj_dc1:
-        nj_od = st.selectbox("Od", _nj_month_opts, index=15, key="nj_od")
+        nj_od = st.selectbox("Od", _nj_month_opts, index=0, key="nj_od")
     with nj_dc2:
-        nj_do = st.selectbox("Do", _nj_month_opts, index=27, key="nj_do")
+        nj_do = st.selectbox("Do", _nj_month_opts, index=len(_nj_month_opts) - 1, key="nj_do")
     with nj_bc:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
         if "nj_results" in st.session_state:
@@ -3536,9 +3536,16 @@ with st.expander("Bilans najemcy", expanded=False):
                           and ("_out" in r["Klucz_Ksiegowy"].lower() or "_kw" in r["Klucz_Ksiegowy"].lower())]
 
             def _sum_kwota_bil(rows):
-                return sum(abs(_parse_amount(r["Kwota brutto"]) or 0.0) for r in rows)
+                total = 0.0
+                for r in rows:
+                    v = _parse_amount(r["Kwota brutto"])
+                    if not v:
+                        v = _parse_amount(r.get("wyciag_Kwota", ""))
+                    total += abs(v or 0.0)
+                return total
 
             prz_sum      = _sum_kwota_bil(_prz_rows)
+            prz_wyciag   = sum(abs(_parse_amount(r.get("wyciag_Kwota", "")) or 0.0) for r in _prz_rows)
             depo_in_sum  = _sum_kwota_bil(_depo_in)
             depo_out_sum = _sum_kwota_bil(_depo_out)
             depo_saldo   = depo_in_sum - depo_out_sum
@@ -3557,8 +3564,12 @@ with st.expander("Bilans najemcy", expanded=False):
                 )
                 st.metric("Wierszy prz w arkuszu", len(_prz_rows))
                 st.metric(
-                    "Suma prz w arkuszu",
+                    "Suma prz w arkuszu (col B)",
                     f"{prz_sum:,.2f} zł".replace(",", " "),
+                )
+                st.metric(
+                    "Suma wpłat (wyciag_Kwota)",
+                    f"{prz_wyciag:,.2f} zł".replace(",", " "),
                 )
                 _diff_icon = "✅" if abs(roznica) < 0.01 else "⚠️"
                 st.metric(
