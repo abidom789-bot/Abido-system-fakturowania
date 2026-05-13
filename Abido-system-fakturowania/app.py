@@ -3409,11 +3409,16 @@ with st.expander("Bilans najemcy", expanded=False):
         )
 
     _nj_month_opts = [f"{m:02d}/{y}" for y in range(2000, 2100) for m in range(1, 13)]
+    _today = date.today()
+    _od_year  = _today.year - 1 if _today.month > 1 else _today.year - 2
+    _od_month = _today.month - 1 if _today.month > 1 else 12
+    _idx_od = (_od_year - 2000) * 12 + (_od_month - 1)
+    _idx_do = (_today.year - 2000) * 12 + (_today.month - 1)
     nj_dc1, nj_dc2, nj_bc = st.columns([2, 2, 1])
     with nj_dc1:
-        nj_od = st.selectbox("Od", _nj_month_opts, index=0, key="nj_od")
+        nj_od = st.selectbox("Od", _nj_month_opts, index=_idx_od, key="nj_od")
     with nj_dc2:
-        nj_do = st.selectbox("Do", _nj_month_opts, index=len(_nj_month_opts) - 1, key="nj_do")
+        nj_do = st.selectbox("Do", _nj_month_opts, index=_idx_do, key="nj_do")
     with nj_bc:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
         if "nj_results" in st.session_state:
