@@ -1810,10 +1810,17 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     count = 0; sk = 0.0; sp = 0.0; sr = 0.0
     for row in sections[SEP_NIEZNANE]:
         col_e = str(row[4]).strip() if len(row) > 4 else ""
+        klucz = str(row[3]).strip() if len(row) > 3 else ""
         if col_e:
             count += 1
         f = _parse_f(row)
-        if f < 0:
+        if klucz.startswith("kos_"):
+            sk += f
+        elif klucz.startswith("prz_"):
+            sp += f
+        elif klucz.startswith("roz_"):
+            sr += f
+        elif f < 0:
             sk += f
         elif f > 0:
             sp += f
@@ -1835,7 +1842,13 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
             klucz = str(row[3]).strip() if len(row) > 3 else ""
             if sep == SEP_NIEZNANE:
                 f = _parse_f(row)
-                if f < 0:
+                if klucz.startswith("kos_"):
+                    matrix["kos_"][sep] += f
+                elif klucz.startswith("prz_"):
+                    matrix["prz_"][sep] += f
+                elif klucz.startswith("roz_"):
+                    matrix["roz_"][sep] += f
+                elif f < 0:
                     matrix["kos_"][sep] += f
                 elif f > 0:
                     matrix["prz_"][sep] += f
