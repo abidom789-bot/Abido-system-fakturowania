@@ -3554,40 +3554,36 @@ with st.expander("Bilans najemcy", expanded=False):
                     total += abs(v or 0.0)
                 return total
 
-            prz_wyciag   = _sum_wplat(_prz_rows)
-            depo_in_sum  = _sum_kwota_bil(_depo_in)
-            depo_out_sum = _sum_kwota_bil(_depo_out)
-            depo_saldo   = depo_in_sum - depo_out_sum
+            prz_naleznosc = _sum_kwota_bil(_prz_rows)
+            prz_wyciag    = _sum_wplat(_prz_rows)
+            depo_in_sum   = _sum_kwota_bil(_depo_in)
+            depo_out_sum  = _sum_kwota_bil(_depo_out)
+            depo_saldo    = depo_in_sum - depo_out_sum
 
-            pdf_kwoty    = [p["Kwota"] for p in _nj["pdfs"] if p.get("Kwota") is not None]
-            pdf_sum      = sum(pdf_kwoty)
-            roznica      = pdf_sum - prz_wyciag
+            pdf_kwoty = [p["Kwota"] for p in _nj["pdfs"] if p.get("Kwota") is not None]
+            pdf_sum   = sum(pdf_kwoty)
 
-            bil_c1, bil_c2 = st.columns(2)
-            with bil_c1:
-                st.markdown("**Przychody z wynajmu (prz)**")
-                p1, p2, p3 = st.columns(3)
-                with p1:
-                    st.metric("Faktury PDF", len(_nj["pdfs"]))
-                    st.metric("Suma PDF", f"{pdf_sum:,.2f} zł".replace(",", " "))
-                with p2:
-                    st.metric("Wpłaty w arkuszu", len(_prz_rows))
-                    st.metric("Suma wpłat", f"{prz_wyciag:,.2f} zł".replace(",", " "))
-                with p3:
-                    _diff_icon = "✅" if abs(roznica) < 0.01 else "⚠️"
-                    st.metric(
-                        "Różnica (PDF – wpłaty)",
-                        f"{_diff_icon}  {roznica:,.2f} zł".replace(",", " "),
-                    )
-            with bil_c2:
+            def _fmt(v):
+                return f"{v:,.2f} zł".replace(",", " ")
+
+            b1, b2, b3, b4 = st.columns(4)
+            with b1:
+                st.markdown("**Faktury arkusz**")
+                st.metric("Pozycji prz", len(_prz_rows))
+                st.metric("Suma", _fmt(prz_naleznosc))
+            with b2:
+                st.markdown("**Wpłaty arkusz**")
+                st.metric("Pozycji", len(_prz_rows))
+                st.metric("Suma", _fmt(prz_wyciag))
+            with b3:
+                st.markdown("**Faktury PDF**")
+                st.metric("Szt.", len(_nj["pdfs"]))
+                st.metric("Suma", _fmt(pdf_sum))
+            with b4:
                 st.markdown("**Kaucja (depo)**")
-                d1, d2, d3 = st.columns(3)
-                with d1:
-                    st.metric("Wpłacona", f"{depo_in_sum:,.2f} zł".replace(",", " "))
-                with d2:
-                    st.metric("Zwrócona", f"{depo_out_sum:,.2f} zł".replace(",", " "))
-                with d3:
-                    st.metric("Saldo kaucji", f"{depo_saldo:,.2f} zł".replace(",", " "))
+                st.metric("Wpłacona", _fmt(depo_in_sum))
+                st.metric("Zwrócona", _fmt(depo_out_sum))
+                st.metric("Saldo", _fmt(depo_saldo))
 
 # ── Segment: miesiac + akcje ────────────────────────────────────────
 with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
