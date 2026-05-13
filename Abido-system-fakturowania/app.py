@@ -3575,6 +3575,13 @@ with st.expander("Bilans najemcy", expanded=False):
                 st.markdown("**Wpłaty arkusz**")
                 st.metric("Pozycji", len(_prz_rows))
                 st.metric("Suma", _fmt(prz_wyciag))
+                _prz_bank = sum(abs(_parse_amount(r.get("wyciag_Kwota", "")) or 0.0) for r in _prz_rows)
+                _prz_rk   = sum(
+                    abs(_parse_amount(r["Kwota brutto"]) or 0.0)
+                    for r in _prz_rows
+                    if not _parse_amount(r.get("wyciag_Kwota", ""))
+                )
+                st.caption(f"wyciąg: {_fmt(_prz_bank)}  |  RK: {_fmt(_prz_rk)}")
             with b3:
                 st.markdown("**Faktury PDF**")
                 st.metric("Szt.", len(_nj["pdfs"]))
