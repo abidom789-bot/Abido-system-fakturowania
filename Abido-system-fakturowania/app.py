@@ -4510,11 +4510,13 @@ if btn_nj_search:
         st.error("Wpisz przynajmniej imię lub nazwisko najemcy.")
     else:
         try:
-            tabs          = _month_tab_range(nj_od, nj_do)
             creds         = get_credentials()
             drive_service = build("drive", "v3", credentials=creds)
             client        = gspread.authorize(creds)
             sp            = client.open_by_key(SPREADSHEET_ID)
+            _all_tabs     = {ws.title for ws in sp.worksheets()}
+            _range_tabs   = _month_tab_range(nj_od, nj_do)
+            tabs          = [t for t in _range_tabs if t in _all_tabs]
             _nj_label     = " ".join(filter(None, [_nj_imie, _nj_nazwisko]))
 
             with st.spinner(
