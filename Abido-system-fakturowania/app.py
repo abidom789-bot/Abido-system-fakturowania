@@ -3106,16 +3106,10 @@ def search_najemca_sheets(spreadsheet, imie, nazwisko, tabs, mode="AND"):
             col_klucz = _normalize_name_for_filename(padded[3])
             col_wyc   = _normalize_name_for_filename(padded[12])
             if _col_hit(col_a) or _col_hit(col_klucz) or _col_hit(col_wyc):
-                results.append({
-                    "Zakladka":      tab,
-                    "Nazwa":         padded[0],
-                    "Kwota":         padded[1],
-                    "Status":        padded[2],
-                    "Raport_kasowy": padded[3],
-                    "Klucz":         padded[3],
-                    "wyciag_Kwota":  padded[8],
-                    "Data":          padded[9],
-                })
+                entry = {"Zakladka": tab}
+                for _ci, _col_name in enumerate(HEADER_ROW):
+                    entry[_col_name] = padded[_ci] if _ci < len(padded) else ""
+                results.append(entry)
     return results
 
 
@@ -3515,7 +3509,7 @@ with st.expander("Bilans najemcy", expanded=False):
                 return True
             return all(checks) if nj_filter_mode == "AND" else any(checks)
 
-        filtered_rows = [r for r in _nj["rows"] if _row_matches_filters(r["Klucz"])]
+        filtered_rows = [r for r in _nj["rows"] if _row_matches_filters(r["Klucz_Ksiegowy"])]
 
         # Transakcje
         with st.expander(
@@ -3533,16 +3527,16 @@ with st.expander("Bilans najemcy", expanded=False):
 
         # Bilans
         with st.expander("Bilans", expanded=True):
-            _prz_rows  = [r for r in _nj["rows"] if r["Klucz"].lower().startswith("prz_")]
+            _prz_rows  = [r for r in _nj["rows"] if r["Klucz_Ksiegowy"].lower().startswith("prz_")]
             _depo_in   = [r for r in _nj["rows"]
-                          if "depo" in r["Klucz"].lower()
-                          and ("_in" in r["Klucz"].lower() or "_kp" in r["Klucz"].lower())]
+                          if "depo" in r["Klucz_Ksiegowy"].lower()
+                          and ("_in" in r["Klucz_Ksiegowy"].lower() or "_kp" in r["Klucz_Ksiegowy"].lower())]
             _depo_out  = [r for r in _nj["rows"]
-                          if "depo" in r["Klucz"].lower()
-                          and ("_out" in r["Klucz"].lower() or "_kw" in r["Klucz"].lower())]
+                          if "depo" in r["Klucz_Ksiegowy"].lower()
+                          and ("_out" in r["Klucz_Ksiegowy"].lower() or "_kw" in r["Klucz_Ksiegowy"].lower())]
 
             def _sum_kwota_bil(rows):
-                return sum(abs(_parse_amount(r["Kwota"]) or 0.0) for r in rows)
+                return sum(abs(_parse_amount(r["Kwota brutto"]) or 0.0) for r in rows)
 
             prz_sum      = _sum_kwota_bil(_prz_rows)
             depo_in_sum  = _sum_kwota_bil(_depo_in)
