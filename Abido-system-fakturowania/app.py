@@ -3544,47 +3544,50 @@ with st.expander("Bilans najemcy", expanded=False):
                     total += abs(v or 0.0)
                 return total
 
-            prz_sum      = _sum_kwota_bil(_prz_rows)
-            prz_wyciag   = sum(abs(_parse_amount(r.get("wyciag_Kwota", "")) or 0.0) for r in _prz_rows)
+            def _sum_wplat(rows):
+                """Suma rzeczywistych wpłat: wyciag_Kwota (bank) lub col B (gotówka rk_kp)."""
+                total = 0.0
+                for r in rows:
+                    v = _parse_amount(r.get("wyciag_Kwota", ""))
+                    if not v:
+                        v = _parse_amount(r["Kwota brutto"])
+                    total += abs(v or 0.0)
+                return total
+
+            prz_wyciag   = _sum_wplat(_prz_rows)
             depo_in_sum  = _sum_kwota_bil(_depo_in)
             depo_out_sum = _sum_kwota_bil(_depo_out)
             depo_saldo   = depo_in_sum - depo_out_sum
 
             pdf_kwoty    = [p["Kwota"] for p in _nj["pdfs"] if p.get("Kwota") is not None]
             pdf_sum      = sum(pdf_kwoty)
-            roznica      = pdf_sum - prz_sum
+            roznica      = pdf_sum - prz_wyciag
 
             bil_c1, bil_c2 = st.columns(2)
             with bil_c1:
                 st.markdown("**Przychody z wynajmu (prz)**")
-                st.metric("Faktury PDF", len(_nj["pdfs"]))
-                st.metric(
-                    "Suma faktur PDF",
-                    f"{pdf_sum:,.2f} zł".replace(",", " "),
-                )
-                st.metric("Wierszy prz w arkuszu", len(_prz_rows))
-                st.metric(
-                    "Suma prz w arkuszu (col B)",
-                    f"{prz_sum:,.2f} zł".replace(",", " "),
-                )
-                st.metric(
-                    "Suma wpłat (wyciag_Kwota)",
-                    f"{prz_wyciag:,.2f} zł".replace(",", " "),
-                )
-                _diff_icon = "✅" if abs(roznica) < 0.01 else "⚠️"
-                st.metric(
-                    "Różnica (PDF – arkusz)",
-                    f"{_diff_icon} {roznica:,.2f} zł".replace(",", " "),
-                )
+                p1, p2, p3 = st.columns(3)
+                with p1:
+                    st.metric("Faktury PDF", len(_nj["pdfs"]))
+                    st.metric("Suma PDF", f"{pdf_sum:,.2f} zł".replace(",", " "))
+                with p2:
+                    st.metric("Wpłaty w arkuszu", len(_prz_rows))
+                    st.metric("Suma wpłat", f"{prz_wyciag:,.2f} zł".replace(",", " "))
+                with p3:
+                    _diff_icon = "✅" if abs(roznica) < 0.01 else "⚠️"
+                    st.metric(
+                        "Różnica (PDF – wpłaty)",
+                        f"{_diff_icon}  {roznica:,.2f} zł".replace(",", " "),
+                    )
             with bil_c2:
                 st.markdown("**Kaucja (depo)**")
-                st.metric("Wpłacona",  f"{depo_in_sum:,.2f} zł".replace(",", " "))
-                st.metric("Zwrócona",  f"{depo_out_sum:,.2f} zł".replace(",", " "))
-                _saldo_icon = "+" if depo_saldo >= 0 else "-"
-                st.metric(
-                    "Saldo kaucji",
-                    f"{depo_saldo:,.2f} zł".replace(",", " "),
-                )
+                d1, d2, d3 = st.columns(3)
+                with d1:
+                    st.metric("Wpłacona", f"{depo_in_sum:,.2f} zł".replace(",", " "))
+                with d2:
+                    st.metric("Zwrócona", f"{depo_out_sum:,.2f} zł".replace(",", " "))
+                with d3:
+                    st.metric("Saldo kaucji", f"{depo_saldo:,.2f} zł".replace(",", " "))
 
 # ── Segment: miesiac + akcje ────────────────────────────────────────
 with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
