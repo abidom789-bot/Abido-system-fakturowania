@@ -3565,13 +3565,19 @@ with st.expander("Bilans najemcy", expanded=False):
             depo_out_sum  = _sum_kwota_bil(_depo_out)
             depo_saldo    = depo_in_sum - depo_out_sum
 
+            _inne_rows = [
+                r for r in _nj["rows"]
+                if not r["Klucz_Ksiegowy"].lower().startswith("prz_")
+                and "depo" not in r["Klucz_Ksiegowy"].lower()
+            ]
+
             pdf_kwoty = [p["Kwota"] for p in _nj["pdfs"] if p.get("Kwota") is not None]
             pdf_sum   = sum(pdf_kwoty)
 
             def _fmt(v):
                 return f"{v:,.2f} zł".replace(",", " ")
 
-            b1, b2, b3, b4 = st.columns(4)
+            b1, b2, b3, b4, b5 = st.columns(5)
             with b1:
                 st.markdown("**Faktury arkusz**")
                 st.metric("Pozycji prz", len(_prz_rows))
@@ -3596,6 +3602,15 @@ with st.expander("Bilans najemcy", expanded=False):
                 st.metric("Wpłacona", _fmt(depo_in_sum))
                 st.metric("Zwrócona", _fmt(depo_out_sum))
                 st.metric("Saldo", _fmt(depo_saldo))
+            with b5:
+                st.markdown("**Inne transakcje**")
+                if _inne_rows:
+                    for r in _inne_rows:
+                        _kw = _parse_amount(r.get("wyciag_Kwota", "")) or _parse_amount(r["Kwota brutto"]) or 0.0
+                        _klucz = r["Klucz_Ksiegowy"] or "(brak klucza)"
+                        st.caption(f"{r['Zakladka']} | {_klucz} | {_fmt(abs(_kw))}")
+                else:
+                    st.caption("—")
 
 # ── Segment: miesiac + akcje ────────────────────────────────────────
 with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
