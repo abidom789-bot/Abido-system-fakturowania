@@ -10,7 +10,7 @@ import xlrd
 import streamlit as st
 import gspread
 import pdfplumber
-from datetime import date
+from datetime import date, datetime
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
@@ -2024,6 +2024,11 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     miesiac_bil   = round(mat_bil["prz_"] + mat_bil["kos_"], 2)
     rows.append([miesiac_label, miesiac_bil, E, E, E, E, E])
 
+    # Timestamp generowania
+    ts = datetime.now().strftime("%d.%m.%Y %H:%M")
+    rows.append([E] * 7)
+    rows.append([f"Wygenerowano: {ts}", E, E, E, E, E, E])
+
     _api(worksheet.update, f"A{start}", rows, value_input_option="USER_ENTERED")
 
     # ── FORMATOWANIE ─────────────────────────────────────────────────────────
@@ -2085,6 +2090,11 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     _lime = {"red": 0.20, "green": 0.93, "blue": 0.20}
     _bold_black = {"bold": True, "foregroundColor": {"red": 0.0, "green": 0.0, "blue": 0.0}}
     row_fmts.append((cur, {"backgroundColor": _lime, "textFormat": _bold_black}))
+    cur += 2  # bilans + pusty separator
+
+    # Timestamp
+    _gray_txt = {"red": 0.45, "green": 0.45, "blue": 0.45}
+    row_fmts.append((cur, {"textFormat": {"italic": True, "foregroundColor": _gray_txt}}))
 
     _batch_format_rows(worksheet, row_fmts)
 
