@@ -4076,50 +4076,70 @@ if btn_paruj:
     if not subfolder_name.strip():
         st.error("Wpisz nazwe podfolderu przed parowaniem.")
     else:
-        name = subfolder_name.strip()
-        try:
-            creds = get_credentials()
-            drive_service = build("drive", "v3", credentials=creds)
+        st.session_state["confirm_paruj"] = subfolder_name.strip()
+        st.rerun()
 
-            with st.spinner(f"Szukam pliku lista_operacji_{name}.xls ..."):
-                bank_file = find_bank_file(drive_service, name)
+if st.session_state.get("confirm_paruj"):
+    _confirm_name = st.session_state["confirm_paruj"]
+    st.warning(
+        f"⚠️ Czy na pewno chcesz parować wyciąg bankowy z arkuszem **{_confirm_name}**?"
+    )
+    _col_tak, _col_nie = st.columns(2)
+    with _col_tak:
+        if st.button("✅ Tak, paruj", key="confirm_paruj_tak", use_container_width=True, type="primary"):
+            st.session_state.pop("confirm_paruj", None)
+            st.session_state["run_paruj"] = _confirm_name
+            st.rerun()
+    with _col_nie:
+        if st.button("❌ Anuluj", key="confirm_paruj_nie", use_container_width=True):
+            st.session_state.pop("confirm_paruj", None)
+            st.rerun()
 
-            if bank_file is None:
-                st.error(
-                    f"Nie znaleziono pliku 'lista_operacji_{name}.xls' "
-                    f"w folderze '{LISTY_OPERACJI_FOLDER_NAME}'."
+if st.session_state.get("run_paruj"):
+    name = st.session_state.pop("run_paruj")
+    try:
+        creds = get_credentials()
+        drive_service = build("drive", "v3", credentials=creds)
+
+        with st.spinner(f"Szukam pliku lista_operacji_{name}.xls ..."):
+            bank_file = find_bank_file(drive_service, name)
+
+        if bank_file is None:
+            st.error(
+                f"Nie znaleziono pliku 'lista_operacji_{name}.xls' "
+                f"w folderze '{LISTY_OPERACJI_FOLDER_NAME}'."
+            )
+        else:
+            with st.spinner("Pobierام plik wyciagu..."):
+                xls_bytes = download_pdf(drive_service, bank_file["id"])
+
+            with st.spinner("Parsuje transakcje..."):
+                transactions = parse_bank_statement(xls_bytes)
+
+            with st.spinner("Paruje z arkuszem..."):
+                client = gspread.authorize(creds)
+                worksheet = get_or_create_worksheet(
+                    client.open_by_key(SPREADSHEET_ID), name
                 )
-            else:
-                with st.spinner("Pobierام plik wyciagu..."):
-                    xls_bytes = download_pdf(drive_service, bank_file["id"])
+                (sparowane, niesparowane, fioletowe, pomaranczowe,
+                 tx_total, tx_sum, sheet_tx_count, sheet_tx_sum,
+                 diff_info) = sync_parowanie(worksheet, transactions)
 
-                with st.spinner("Parsuje transakcje..."):
-                    transactions = parse_bank_statement(xls_bytes)
+            _dialog_wynik_parowania({
+                "sparowane":      sparowane,
+                "niesparowane":   niesparowane,
+                "fioletowe":      fioletowe,
+                "pomaranczowe":   pomaranczowe,
+                "tx_total":       tx_total,
+                "tx_sum":         tx_sum,
+                "sheet_tx_count": sheet_tx_count,
+                "sheet_tx_sum":   sheet_tx_sum,
+                "diff_info":      diff_info,
+                "subfolder_name": name,
+            })
 
-                with st.spinner("Paruje z arkuszem..."):
-                    client = gspread.authorize(creds)
-                    worksheet = get_or_create_worksheet(
-                        client.open_by_key(SPREADSHEET_ID), name
-                    )
-                    (sparowane, niesparowane, fioletowe, pomaranczowe,
-                     tx_total, tx_sum, sheet_tx_count, sheet_tx_sum,
-                     diff_info) = sync_parowanie(worksheet, transactions)
-
-                _dialog_wynik_parowania({
-                    "sparowane":      sparowane,
-                    "niesparowane":   niesparowane,
-                    "fioletowe":      fioletowe,
-                    "pomaranczowe":   pomaranczowe,
-                    "tx_total":       tx_total,
-                    "tx_sum":         tx_sum,
-                    "sheet_tx_count": sheet_tx_count,
-                    "sheet_tx_sum":   sheet_tx_sum,
-                    "diff_info":      diff_info,
-                    "subfolder_name": name,
-                })
-
-        except Exception as e:
-            st.error(f"Wystapil blad: {e}")
+    except Exception as e:
+        st.error(f"Wystapil blad: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Odswierz KP / KW
