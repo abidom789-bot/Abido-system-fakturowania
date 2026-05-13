@@ -1759,15 +1759,15 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         for row in sections[sep]:
             col_a = str(row[0]).strip() if row else ""
             col_e = str(row[4]).strip() if len(row) > 4 else ""
-            # Ilość: główne wiersze (col A) dla fakturowych, TX-wiersze (col E) dla reszty
-            if sep in (SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC):
+            # Ilość: główne wiersze (col A) dla fakturowych i INNE_RK, TX-wiersze (col E) dla NIEZNANE
+            if sep in (SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC, SEP_INNE_RK):
                 if col_a:
                     count += 1
                     try:
                         sum_b += float(re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", "."))
                     except (ValueError, TypeError):
                         pass
-            else:
+            else:   # SEP_NIEZNANE
                 if col_e:
                     count += 1
             # Suma col F (wyciąg_Kwota) dla wszystkich wierszy z danymi
