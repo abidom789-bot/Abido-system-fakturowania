@@ -1872,8 +1872,11 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         for row in sec_rows:
             status = str(row[2] if len(row) > 2 else "").strip()
             klucz  = str(row[3] if len(row) > 3 else "").strip()
-            has_content = (str(row[4]).strip() if sep == SEP_NIEZNANE and len(row) > 4
-                           else str(row[0]).strip() if row else "")
+            if sep == SEP_NIEZNANE:
+                has_content = (str(row[5]).strip() if len(row) > 5
+                               else str(row[4]).strip() if len(row) > 4 else "")
+            else:
+                has_content = str(row[0]).strip() if row else ""
             if not has_content:
                 continue
             if status == "0":
