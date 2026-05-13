@@ -63,6 +63,7 @@ Klucz składa się z segmentów oddzielonych `_`:
 | `kos_rk_kp` | Zwrot gotówkowy — kasa przyjęła |
 | `kos_fak_no_pay` | Faktura jest w tym miesiącu, płatność wyjdzie w innym miesiącu |
 | `kos_pr_out_no_fak` | Przelew wychodzi, faktura była w innym miesiącu |
+| `kos_pr_out_prob` | Pozycja z problemem — niepełna płatność, niezgodność kwoty lub inny problem wymagający wyjaśnienia |
 
 > **Reguła automatyczna:** faktury PDF z `cash` w nazwie pliku → zawsze `kos_rk_kw`
 
