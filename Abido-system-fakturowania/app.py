@@ -1872,6 +1872,10 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         for row in sec_rows:
             status = str(row[2] if len(row) > 2 else "").strip()
             klucz  = str(row[3] if len(row) > 3 else "").strip()
+            # Klucz Nieznane: liczymy wszędzie gdzie klucz = nieznany_*, niezależnie od col A
+            if klucz.startswith("nieznany_"):
+                klucz_nieznane_count += 1
+                continue
             if sep == SEP_NIEZNANE:
                 has_content = (str(row[5]).strip() if len(row) > 5
                                else str(row[4]).strip() if len(row) > 4 else "")
@@ -1887,8 +1891,6 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
                 status_null_count += 1
             if not klucz:
                 klucz_null_count += 1
-            elif klucz.startswith("nieznany_"):
-                klucz_nieznane_count += 1
 
     # ── WYCIĄG W ARKUSZU ─────────────────────────────────────────────────────
     wyciag_count = 0; wyciag_sum = 0.0
