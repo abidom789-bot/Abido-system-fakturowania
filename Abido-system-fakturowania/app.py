@@ -1743,131 +1743,140 @@ _SEP_LABELS = {
 
 
 def add_section_summary(worksheet, service=None, subfolder_name=None):
-    """Dodaje tabelkę podsumowania na dole arkusza (6 kolumn):
-    Segment | Ilość pozycji | Suma kol. B (faktura) | Suma wyciąg_Kwota | Suma RK | Bilans
-
+    """Dodaje tabelkę podsumowania na dole arkusza (trzy sub-tabele).
     Parowanie i sortowanie usuwają ją automatycznie (rebuild_sheet → clear()).
     """
     sections = read_all_sections(worksheet)
 
-    # Statystyki per sekcja
-    stats = {}
-    for sep in SECTION_ORDER:
-        count = 0
-        sum_b = 0.0
-        sum_f = 0.0
-        sum_rk = 0.0
+    def _parse_b(row):
+        try:
+            return float(re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", "."))
+        except (ValueError, TypeError):
+            return 0.0
+
+    def _parse_f(row):
+        try:
+            return float(re.sub(r"[^\d,.\-]", "", str(row[5] if len(row) > 5 else "")).replace(",", "."))
+        except (ValueError, TypeError):
+            return 0.0
+
+    # ── TABELA 1: KOSZTOWE, SPRZEDAZ, WLASC ──────────────────────────────────
+    # Kolumny: Segment | Ilość | Suma kol.B | Suma wyciąg | Suma RK | Bilans
+    T1_SEPS = [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC]
+    t1_stats = {}
+    for sep in T1_SEPS:
+        count = 0; sum_b = 0.0; sum_f = 0.0; sum_rk = 0.0
         for row in sections[sep]:
-            col_a  = str(row[0]).strip() if row else ""
-            col_e  = str(row[4]).strip() if len(row) > 4 else ""
-            klucz  = str(row[3]).strip() if len(row) > 3 else ""
-            # Ilość: główne wiersze (col A) dla fakturowych i INNE_RK, TX-wiersze (col E) dla NIEZNANE
-            if sep in (SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC, SEP_INNE_RK):
+            col_a = str(row[0]).strip() if row else ""
+            klucz = str(row[3]).strip() if len(row) > 3 else ""
+            if col_a:
+                count += 1
+                b = _parse_b(row)
+                sum_b += b
+                if "_rk_" in klucz:
+                    sum_rk += b
+            if len(row) > 5 and str(row[5]).strip():
+                sum_f += _parse_f(row)
+        t1_stats[sep] = (count, round(sum_b, 2), round(sum_f, 2), round(sum_rk, 2),
+                         round(sum_b - sum_f - sum_rk, 2))
+
+    t1_rc  = sum(s[0] for s in t1_stats.values())
+    t1_rb  = round(sum(s[1] for s in t1_stats.values()), 2)
+    t1_rf  = round(sum(s[2] for s in t1_stats.values()), 2)
+    t1_rrk = round(sum(s[3] for s in t1_stats.values()), 2)
+    t1_rbil = round(t1_rb - t1_rf - t1_rrk, 2)
+
+    # ── TABELA 2: INNE_RK, NIEZNANE ──────────────────────────────────────────
+    # Kolumny: Segment | Ilość | kos_ sum | prz_ sum | roz_ sum
+    # INNE_RK: col B per prefiks klucza
+    # NIEZNANE: wyciag_Kwota (ujemne→kos_, dodatnie→prz_)
+    t2_stats = {}
+
+    count = 0; sk = 0.0; sp = 0.0; sr = 0.0
+    for row in sections[SEP_INNE_RK]:
+        col_a = str(row[0]).strip() if row else ""
+        klucz = str(row[3]).strip() if len(row) > 3 else ""
+        if col_a:
+            count += 1
+            b = _parse_b(row)
+            if klucz.startswith("kos_"):
+                sk += b
+            elif klucz.startswith("prz_"):
+                sp += b
+            elif klucz.startswith("roz_"):
+                sr += b
+    t2_stats[SEP_INNE_RK] = (count, round(sk, 2), round(sp, 2), round(sr, 2))
+
+    count = 0; sk = 0.0; sp = 0.0; sr = 0.0
+    for row in sections[SEP_NIEZNANE]:
+        col_e = str(row[4]).strip() if len(row) > 4 else ""
+        if col_e:
+            count += 1
+        f = _parse_f(row)
+        if f < 0:
+            sk += f
+        elif f > 0:
+            sp += f
+    t2_stats[SEP_NIEZNANE] = (count, round(sk, 2), round(sp, 2), round(sr, 2))
+
+    t2_rc  = sum(s[0] for s in t2_stats.values())
+    t2_rk  = round(sum(s[1] for s in t2_stats.values()), 2)
+    t2_rp  = round(sum(s[2] for s in t2_stats.values()), 2)
+    t2_rr  = round(sum(s[3] for s in t2_stats.values()), 2)
+
+    # ── MATRYCA: kos_/prz_/roz_ × wszystkie 5 sekcji ────────────────────────
+    # Kolumny: Segment | KOSZTOWE | SPRZEDAZ | WLASC | INNE_RK | NIEZNANE | Bilans
+    ALL_SEPS = [SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC, SEP_INNE_RK, SEP_NIEZNANE]
+    matrix = {"kos_": {s: 0.0 for s in ALL_SEPS},
+              "prz_": {s: 0.0 for s in ALL_SEPS},
+              "roz_": {s: 0.0 for s in ALL_SEPS}}
+    for sep in ALL_SEPS:
+        for row in sections[sep]:
+            klucz = str(row[3]).strip() if len(row) > 3 else ""
+            if sep == SEP_NIEZNANE:
+                f = _parse_f(row)
+                if f < 0:
+                    matrix["kos_"][sep] += f
+                elif f > 0:
+                    matrix["prz_"][sep] += f
+            else:
+                col_a = str(row[0]).strip() if row else ""
                 if col_a:
-                    count += 1
-                    try:
-                        _b = float(re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", "."))
-                        sum_b += _b
-                        if "_rk_" in klucz:
-                            sum_rk += _b
-                    except (ValueError, TypeError):
-                        pass
-            else:   # SEP_NIEZNANE
-                if col_e:
-                    count += 1
-            # Suma col F (wyciąg_Kwota) dla wszystkich wierszy z danymi
-            if len(row) > 5 and str(row[5]).strip():
-                try:
-                    sum_f += float(re.sub(r"[^\d,.\-]", "", str(row[5])).replace(",", "."))
-                except (ValueError, TypeError):
-                    pass
-        bilans = round(sum_b - sum_f - sum_rk, 2)
-        stats[sep] = (count, round(sum_b, 2), round(sum_f, 2), round(sum_rk, 2), bilans)
+                    b = _parse_b(row)
+                    for pfx in ("kos_", "prz_", "roz_"):
+                        if klucz.startswith(pfx):
+                            matrix[pfx][sep] += b
+                            break
+    for pfx in matrix:
+        for sep in ALL_SEPS:
+            matrix[pfx][sep] = round(matrix[pfx][sep], 2)
+    mat_bil = {pfx: round(sum(matrix[pfx].values()), 2) for pfx in matrix}
 
-    # RAZEM
-    razem_count = sum(s[0] for s in stats.values())
-    razem_b     = round(sum(s[1] for s in stats.values()), 2)
-    razem_f     = round(sum(s[2] for s in stats.values()), 2)
-    razem_rk    = round(sum(s[3] for s in stats.values()), 2)
-    razem_bil   = round(razem_b - razem_f - razem_rk, 2)
-
-    # Wiersz: wyciąg_Kwota w arkuszu — wszystkie wiersze z niepustą col F
-    wyciag_count = 0
-    wyciag_sum   = 0.0
-    for sec_rows in sections.values():
-        for row in sec_rows:
-            if len(row) > 5 and str(row[5]).strip():
-                wyciag_count += 1
-                try:
-                    wyciag_sum += float(re.sub(r"[^\d,.\-]", "", str(row[5])).replace(",", "."))
-                except (ValueError, TypeError):
-                    pass
-    wyciag_sum = round(wyciag_sum, 2)
-
-    # Znajdź pozycję starego podsumowania (jeśli istnieje) lub ostatni wiersz z danymi
-    all_vals = _api(worksheet.get_all_values)
-    old_summary_row = None
-    for _i, _r in enumerate(all_vals):
-        if (str(_r[0]).strip() == "Segment"
-                and len(_r) > 1 and "pozycji" in str(_r[1]).lower()):
-            old_summary_row = _i + 1   # 1-based
-            break
-
-    if old_summary_row:
-        # Wyczyść stare podsumowanie — nadpisz pustymi wierszami
-        _blank_rows = [[""] * 6] * (len(all_vals) - old_summary_row + 1)
-        _api(worksheet.update, f"A{old_summary_row}", _blank_rows,
-             value_input_option="USER_ENTERED")
-        start = old_summary_row
-    else:
-        last_row = len(all_vals)
-        while last_row > 0 and not any(c for c in all_vals[last_row - 1]):
-            last_row -= 1
-        start = last_row + 3
-
-    # Sumy bilansowe po kluczach kos_ i prz_
-    kos_sum = 0.0
-    prz_sum = 0.0
-    for _sec_rows in sections.values():
-        for _r in _sec_rows:
-            _klucz = str(_r[3]).strip() if len(_r) > 3 else ""
-            if not _klucz:
-                continue
-            try:
-                _b = float(re.sub(r"[^\d,.\-]", "", str(_r[1] if len(_r) > 1 else "")).replace(",", "."))
-            except (ValueError, TypeError):
-                _b = 0.0
-            if _klucz.startswith("kos_"):
-                kos_sum += _b
-            elif _klucz.startswith("prz_"):
-                prz_sum += _b
-    kos_sum = round(kos_sum, 2)
-    prz_sum = round(prz_sum, 2)
-
-    # Policz wiersze ze statusem 0 lub 1 (niezamkniete)
-    # Sekcje fakturowe (col A niepuste) + NIEZNANE (col A puste, liczymy po col C)
-    status0_count = 0
-    status1_count = 0
+    # ── STATUS 0/1 ───────────────────────────────────────────────────────────
+    status0_count = 0; status1_count = 0
     for sep, sec_rows in sections.items():
         for row in sec_rows:
             status = str(row[2] if len(row) > 2 else "").strip()
             if status not in ("0", "1"):
                 continue
             if sep == SEP_NIEZNANE:
-                if status == "0":
-                    status0_count += 1
-                else:
-                    status1_count += 1
+                if status == "0": status0_count += 1
+                else:             status1_count += 1
             elif str(row[0]).strip():
-                if status == "0":
-                    status0_count += 1
-                else:
-                    status1_count += 1
+                if status == "0": status0_count += 1
+                else:             status1_count += 1
 
-    # Dane z pliku lista_operacji (opcjonalnie)
-    bank_tx_count = None
-    bank_tx_sum   = None
-    bank_diag     = None
+    # ── WYCIĄG W ARKUSZU ─────────────────────────────────────────────────────
+    wyciag_count = 0; wyciag_sum = 0.0
+    for sec_rows in sections.values():
+        for row in sec_rows:
+            if len(row) > 5 and str(row[5]).strip():
+                wyciag_count += 1
+                wyciag_sum += _parse_f(row)
+    wyciag_sum = round(wyciag_sum, 2)
+
+    # ── DANE Z PLIKU LISTA_OPERACJI (opcjonalnie) ─────────────────────────────
+    bank_tx_count = None; bank_tx_sum = None; bank_diag = None
     if service and subfolder_name:
         bank_file = find_bank_file(service, subfolder_name)
         if bank_file:
@@ -1876,7 +1885,6 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
             bank_tx_count = len(transactions)
             bank_tx_sum   = round(sum(t["kwota"] for t in transactions), 2)
 
-            # Diagnostyka: porównanie TX z pliku z TX w arkuszu
             def _tx_sig_local(tx):
                 return (round(float(tx["kwota"]), 2), _norm_date(tx["data_ks"]),
                         str(tx["nr_rachunku"]).strip(), str(tx["tytul"]).strip()[:30])
@@ -1890,107 +1898,149 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
                                   if len(_r) > 5 and str(_r[5]).strip() else 0.0
                         except (ValueError, TypeError):
                             _kw = 0.0
-                        _sig = (
-                            _kw,
-                            _norm_date(_r[6]) if len(_r) > 6 else "",
-                            str(_r[11]).strip() if len(_r) > 11 else "",
-                            str(_r[7]).strip()[:30] if len(_r) > 7 else "",
-                        )
+                        _sig = (_kw,
+                                _norm_date(_r[6]) if len(_r) > 6 else "",
+                                str(_r[11]).strip() if len(_r) > 11 else "",
+                                str(_r[7]).strip()[:30] if len(_r) > 7 else "")
                         sheet_sig_counter[_sig] += 1
 
             file_sig_counter = Counter(_tx_sig_local(tx) for tx in transactions)
             missing_sigs = file_sig_counter - sheet_sig_counter
             dupe_sigs    = sheet_sig_counter - file_sig_counter
-
-            missing_txs   = []
-            duplicate_txs = []
-            used_m = Counter()
-            used_d = Counter()
+            missing_txs = []; duplicate_txs = []
+            used_m = Counter(); used_d = Counter()
             for tx in transactions:
                 sig = _tx_sig_local(tx)
                 if missing_sigs[sig] > used_m[sig]:
-                    missing_txs.append(tx)
-                    used_m[sig] += 1
+                    missing_txs.append(tx); used_m[sig] += 1
                 elif dupe_sigs[sig] > used_d[sig]:
-                    duplicate_txs.append(tx)
-                    used_d[sig] += 1
-
+                    duplicate_txs.append(tx); used_d[sig] += 1
             bank_diag = {"missing": missing_txs, "duplicates": duplicate_txs}
 
-    # Buduj wiersze tabeli
-    rows = [["Segment", "Ilość pozycji", "Suma kol. B (faktura)", "Suma wyciąg_Kwota", "Suma RK", "Bilans"]]
-    for sep in SECTION_ORDER:
-        c, sb, sf, srk, bil = stats[sep]
-        rows.append([_SEP_LABELS[sep], c, sb, sf, srk, bil])
-    rows.append(["RAZEM", razem_count, razem_b, razem_f, razem_rk, razem_bil])
-    rows.append(["", "", "", "", "", ""])   # separator
-    rows.append(["wyciag_Kwota w arkuszu", wyciag_count, "", wyciag_sum, "", ""])
-    rows.append(["", "", "", "", "", ""])   # separator
-    rows.append(["Status 0", status0_count, "", "", "", ""])
-    rows.append(["Status 1", status1_count, "", "", "", ""])
+    # ── POZYCJA STARTOWA ─────────────────────────────────────────────────────
+    all_vals = _api(worksheet.get_all_values)
+    old_summary_row = None
+    # Nowy format: szukaj "Status 0" jako kotwicy
+    for _i, _r in enumerate(all_vals):
+        if str(_r[0]).strip() == "Status 0":
+            old_summary_row = _i + 1
+            break
+    # Fallback: stary format zaczyna się od "Segment" / "pozycji"
+    if not old_summary_row:
+        for _i, _r in enumerate(all_vals):
+            if (str(_r[0]).strip() == "Segment"
+                    and len(_r) > 1 and "pozycji" in str(_r[1]).lower()):
+                old_summary_row = _i + 1
+                break
+
+    if old_summary_row:
+        _blank_rows = [[""] * 7] * (len(all_vals) - old_summary_row + 1)
+        _api(worksheet.update, f"A{old_summary_row}", _blank_rows,
+             value_input_option="USER_ENTERED")
+        start = old_summary_row
+    else:
+        last_row = len(all_vals)
+        while last_row > 0 and not any(c for c in all_vals[last_row - 1]):
+            last_row -= 1
+        start = last_row + 3
+
+    # ── BUDUJ WIERSZE ────────────────────────────────────────────────────────
+    E = ""
+    rows = []
+
+    # Status 0/1
+    rows.append(["Status 0", status0_count, E, E, E, E, E])
+    rows.append(["Status 1", status1_count, E, E, E, E, E])
+    rows.append([E] * 7)
+
+    # Wyciąg kontrola
+    rows.append(["wyciag_Kwota w arkuszu", wyciag_count, wyciag_sum, E, E, E, E])
     if bank_tx_count is not None:
-        rows.append(["", "", "", "", "", ""])   # separator
-        rows.append(["Wyciąg — liczba TX", bank_tx_count, "", "", "", ""])
-        rows.append(["Wyciąg — suma kwot", "", "", bank_tx_sum, "", ""])
-    rows.append(["", "", "", "", "", ""])   # separator
-    rows.append(["", "", "", "", "", ""])   # separator
-    rows.append(["Koszty (kos_)", "", kos_sum, "", "", ""])
-    rows.append(["Przychody (prz_)", "", prz_sum, "", "", ""])
-    rows.append(["Bilans (prz_ + kos_)", "", round(prz_sum + kos_sum, 2), "", "", ""])
+        rows.append(["Lista operacji xlsx \u2014 liczba TX", bank_tx_count, bank_tx_sum, E, E, E, E])
+    rows.append([E] * 7)
+    rows.append([E] * 7)
+
+    # Tabela 1 — KOSZTOWE, SPRZEDAZ, WLASC
+    rows.append(["Segment", "Ilo\u015b\u0107 pozycji", "Suma kol. B (faktura)",
+                 "Suma wyci\u0105g_Kwota", "Suma RK", "Bilans", E])
+    for sep in T1_SEPS:
+        c, sb, sf, srk, bil = t1_stats[sep]
+        rows.append([_SEP_LABELS[sep], c, sb, sf, srk, bil, E])
+    rows.append(["RAZEM", t1_rc, t1_rb, t1_rf, t1_rrk, t1_rbil, E])
+    rows.append([E] * 7)
+    rows.append([E] * 7)
+
+    # Tabela 2 — INNE_RK, NIEZNANE
+    rows.append(["Segment", "Ilo\u015b\u0107 pozycji", "klucz_kos_kolB",
+                 "klucz_prz_kolB", "klucz_roz_kolB", E, E])
+    for sep in [SEP_INNE_RK, SEP_NIEZNANE]:
+        c, sk_, sp_, sr_ = t2_stats[sep]
+        rows.append([_SEP_LABELS[sep], c, sk_, sp_, sr_, E, E])
+    rows.append(["RAZEM", t2_rc, t2_rk, t2_rp, t2_rr, E, E])
+    rows.append([E] * 7)
+    rows.append([E] * 7)
+
+    # Matryca — kos_/prz_/roz_ × segmenty
+    seg_labels = [_SEP_LABELS[s] for s in ALL_SEPS]
+    rows.append(["Segment"] + seg_labels + ["Bilans"])
+    for pfx, label in [("kos_", "Koszty (kos_)"),
+                       ("prz_", "Przychody (prz_)"),
+                       ("roz_", "Rozrachunkowe (roz_)")]:
+        rows.append([label] + [matrix[pfx][s] for s in ALL_SEPS] + [mat_bil[pfx]])
 
     _api(worksheet.update, f"A{start}", rows, value_input_option="USER_ENTERED")
 
-    # Formatowanie
-    row_fmts = []
-    row_fmts.append((start, {                               # nagłówek
-        "backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},
-        "textFormat": {"bold": True},
-    }))
-    for i, sep in enumerate(SECTION_ORDER):
-        row_fmts.append((start + 1 + i, {                  # sekcje
-            "backgroundColor": SEP_COLORS[sep],
-            "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
-        }))
-    razem_row = start + 1 + len(SECTION_ORDER)
-    row_fmts.append((razem_row, {                           # RAZEM
-        "backgroundColor": {"red": 0.2, "green": 0.2, "blue": 0.2},
-        "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
-    }))
-    wyciag_row = razem_row + 2                              # +1 pusty separator
-    row_fmts.append((wyciag_row, {                          # wyciąg_Kwota
-        "backgroundColor": {"red": 0.18, "green": 0.45, "blue": 0.75},
-        "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
-    }))
-    open_row = wyciag_row + 2                               # +1 pusty separator
+    # ── FORMATOWANIE ─────────────────────────────────────────────────────────
     _green  = {"red": 0.20, "green": 0.78, "blue": 0.35}
     _orange = {"red": 1.0,  "green": 0.76, "blue": 0.30}
-    _status_fmt = {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}}
-    _num_fmt = {"type": "NUMBER", "pattern": "0"}
-    row_fmts.append((open_row, {                            # Status 0
-        "backgroundColor": _green if status0_count == 0 else _orange,
-        "textFormat": _status_fmt,
-        "numberFormat": _num_fmt,
-    }))
-    row_fmts.append((open_row + 1, {                        # Status 1
-        "backgroundColor": _green if status1_count == 0 else _orange,
-        "textFormat": _status_fmt,
-        "numberFormat": _num_fmt,
-    }))
+    _white  = {"red": 1.0,  "green": 1.0,  "blue": 1.0}
+    _bold_white = {"bold": True, "foregroundColor": _white}
+    _hdr_style = {"backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},
+                  "textFormat": {"bold": True}}
+    _razem_style = {"backgroundColor": {"red": 0.2, "green": 0.2, "blue": 0.2},
+                    "textFormat": _bold_white}
+    _bilans_style = {"backgroundColor": {"red": 0.25, "green": 0.25, "blue": 0.50},
+                     "textFormat": _bold_white}
+    _wyciag_style = {"backgroundColor": {"red": 0.18, "green": 0.45, "blue": 0.75},
+                     "textFormat": _bold_white}
+
+    row_fmts = []
+    cur = start
+
+    # Status 0/1
+    row_fmts.append((cur,     {"backgroundColor": _green if status0_count == 0 else _orange,
+                               "textFormat": _bold_white}))
+    row_fmts.append((cur + 1, {"backgroundColor": _green if status1_count == 0 else _orange,
+                               "textFormat": _bold_white}))
+    cur += 3  # 2 status + 1 separator
+
+    # Wyciąg kontrola
+    row_fmts.append((cur, _wyciag_style))
     if bank_tx_count is not None:
-        bank_style = {
-            "backgroundColor": {"red": 0.13, "green": 0.55, "blue": 0.55},
-            "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
-        }
-        row_fmts.append((open_row + 3, bank_style))   # liczba TX  (+1 separator +2 status-wiersze)
-        row_fmts.append((open_row + 4, bank_style))   # suma kwot
-    bilans_style = {
-        "backgroundColor": {"red": 0.25, "green": 0.25, "blue": 0.50},
-        "textFormat": {"bold": True, "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}},
-    }
-    bilans_start = open_row + (7 if bank_tx_count is not None else 4)
-    row_fmts.append((bilans_start,     bilans_style))   # Koszty
-    row_fmts.append((bilans_start + 1, bilans_style))   # Przychody
-    row_fmts.append((bilans_start + 2, bilans_style))   # Bilans
+        row_fmts.append((cur + 1, _wyciag_style))
+        cur += 4  # 2 wyciąg + 2 separatory
+    else:
+        cur += 3  # 1 wyciąg + 2 separatory
+
+    # Tabela 1
+    row_fmts.append((cur, _hdr_style)); cur += 1
+    for sep in T1_SEPS:
+        row_fmts.append((cur, {"backgroundColor": SEP_COLORS[sep], "textFormat": _bold_white}))
+        cur += 1
+    row_fmts.append((cur, _razem_style)); cur += 3  # RAZEM + 2 separatory
+
+    # Tabela 2
+    row_fmts.append((cur, _hdr_style)); cur += 1
+    for sep in [SEP_INNE_RK, SEP_NIEZNANE]:
+        row_fmts.append((cur, {"backgroundColor": SEP_COLORS[sep], "textFormat": _bold_white}))
+        cur += 1
+    row_fmts.append((cur, _razem_style)); cur += 3  # RAZEM + 2 separatory
+
+    # Matryca
+    row_fmts.append((cur, _hdr_style)); cur += 1
+    for _ in range(3):
+        row_fmts.append((cur, _bilans_style)); cur += 1
+
     _batch_format_rows(worksheet, row_fmts)
 
     return bank_diag
