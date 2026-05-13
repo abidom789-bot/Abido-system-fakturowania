@@ -2000,6 +2000,13 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
                        ("prz_", "Przychody (prz_)"),
                        ("roz_", "Rozrachunkowe (roz_)")]:
         rows.append([label] + [matrix[pfx][s] for s in ALL_SEPS] + [mat_bil[pfx]])
+    rows.append([E] * 7)
+    rows.append([E] * 7)
+
+    # Bilans miesiąca (prz_ + kos_)
+    miesiac_label = f"Bilans miesi\u0105ca prz-kos {subfolder_name}" if subfolder_name else "Bilans miesi\u0105ca prz-kos"
+    miesiac_bil   = round(mat_bil["prz_"] + mat_bil["kos_"], 2)
+    rows.append([miesiac_label, miesiac_bil, E, E, E, E, E])
 
     _api(worksheet.update, f"A{start}", rows, value_input_option="USER_ENTERED")
 
@@ -2053,6 +2060,12 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     row_fmts.append((cur, _hdr_style)); cur += 1
     for _ in range(3):
         row_fmts.append((cur, _bilans_style)); cur += 1
+    cur += 2  # 2 separatory
+
+    # Bilans miesiąca
+    _lime = {"red": 0.20, "green": 0.93, "blue": 0.20}
+    _bold_black = {"bold": True, "foregroundColor": {"red": 0.0, "green": 0.0, "blue": 0.0}}
+    row_fmts.append((cur, {"backgroundColor": _lime, "textFormat": _bold_black}))
 
     _batch_format_rows(worksheet, row_fmts)
 
