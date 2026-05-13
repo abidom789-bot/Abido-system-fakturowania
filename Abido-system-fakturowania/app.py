@@ -1743,8 +1743,8 @@ _SEP_LABELS = {
 
 
 def add_section_summary(worksheet, service=None, subfolder_name=None):
-    """Dodaje tabelkę podsumowania na dole arkusza (4 kolumny):
-    Segment | Ilość pozycji | Suma kol. B (faktura) | Suma wyciąg_Kwota
+    """Dodaje tabelkę podsumowania na dole arkusza (6 kolumn):
+    Segment | Ilość pozycji | Suma kol. B (faktura) | Suma wyciąg_Kwota | Suma RK | Bilans
 
     Parowanie i sortowanie usuwają ją automatycznie (rebuild_sheet → clear()).
     """
@@ -1756,15 +1756,20 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         count = 0
         sum_b = 0.0
         sum_f = 0.0
+        sum_rk = 0.0
         for row in sections[sep]:
-            col_a = str(row[0]).strip() if row else ""
-            col_e = str(row[4]).strip() if len(row) > 4 else ""
+            col_a  = str(row[0]).strip() if row else ""
+            col_e  = str(row[4]).strip() if len(row) > 4 else ""
+            klucz  = str(row[3]).strip() if len(row) > 3 else ""
             # Ilość: główne wiersze (col A) dla fakturowych i INNE_RK, TX-wiersze (col E) dla NIEZNANE
             if sep in (SEP_KOSZTOWE, SEP_SPRZEDAZ, SEP_WLASC, SEP_INNE_RK):
                 if col_a:
                     count += 1
                     try:
-                        sum_b += float(re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", "."))
+                        _b = float(re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", "."))
+                        sum_b += _b
+                        if "_rk_" in klucz:
+                            sum_rk += _b
                     except (ValueError, TypeError):
                         pass
             else:   # SEP_NIEZNANE
@@ -1776,12 +1781,15 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
                     sum_f += float(re.sub(r"[^\d,.\-]", "", str(row[5])).replace(",", "."))
                 except (ValueError, TypeError):
                     pass
-        stats[sep] = (count, round(sum_b, 2), round(sum_f, 2))
+        bilans = round(sum_b - sum_f - sum_rk, 2)
+        stats[sep] = (count, round(sum_b, 2), round(sum_f, 2), round(sum_rk, 2), bilans)
 
     # RAZEM
     razem_count = sum(s[0] for s in stats.values())
     razem_b     = round(sum(s[1] for s in stats.values()), 2)
     razem_f     = round(sum(s[2] for s in stats.values()), 2)
+    razem_rk    = round(sum(s[3] for s in stats.values()), 2)
+    razem_bil   = round(razem_b - razem_f - razem_rk, 2)
 
     # Wiersz: wyciąg_Kwota w arkuszu — wszystkie wiersze z niepustą col F
     wyciag_count = 0
@@ -1807,7 +1815,7 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
 
     if old_summary_row:
         # Wyczyść stare podsumowanie — nadpisz pustymi wierszami
-        _blank_rows = [[""] * 4] * (len(all_vals) - old_summary_row + 1)
+        _blank_rows = [[""] * 6] * (len(all_vals) - old_summary_row + 1)
         _api(worksheet.update, f"A{old_summary_row}", _blank_rows,
              value_input_option="USER_ENTERED")
         start = old_summary_row
@@ -1910,25 +1918,25 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
             bank_diag = {"missing": missing_txs, "duplicates": duplicate_txs}
 
     # Buduj wiersze tabeli
-    rows = [["Segment", "Ilość pozycji", "Suma kol. B (faktura)", "Suma wyciąg_Kwota"]]
+    rows = [["Segment", "Ilość pozycji", "Suma kol. B (faktura)", "Suma wyciąg_Kwota", "Suma RK", "Bilans"]]
     for sep in SECTION_ORDER:
-        c, sb, sf = stats[sep]
-        rows.append([_SEP_LABELS[sep], c, sb, sf])
-    rows.append(["RAZEM", razem_count, razem_b, razem_f])
-    rows.append(["", "", "", ""])   # separator
-    rows.append(["wyciag_Kwota w arkuszu", wyciag_count, "", wyciag_sum])
-    rows.append(["", "", "", ""])   # separator
-    rows.append(["Status 0", status0_count, "", ""])
-    rows.append(["Status 1", status1_count, "", ""])
+        c, sb, sf, srk, bil = stats[sep]
+        rows.append([_SEP_LABELS[sep], c, sb, sf, srk, bil])
+    rows.append(["RAZEM", razem_count, razem_b, razem_f, razem_rk, razem_bil])
+    rows.append(["", "", "", "", "", ""])   # separator
+    rows.append(["wyciag_Kwota w arkuszu", wyciag_count, "", wyciag_sum, "", ""])
+    rows.append(["", "", "", "", "", ""])   # separator
+    rows.append(["Status 0", status0_count, "", "", "", ""])
+    rows.append(["Status 1", status1_count, "", "", "", ""])
     if bank_tx_count is not None:
-        rows.append(["", "", "", ""])   # separator
-        rows.append(["Wyciąg — liczba TX", bank_tx_count, "", ""])
-        rows.append(["Wyciąg — suma kwot", "", "", bank_tx_sum])
-    rows.append(["", "", "", ""])   # separator
-    rows.append(["", "", "", ""])   # separator
-    rows.append(["Koszty (kos_)", "", kos_sum, ""])
-    rows.append(["Przychody (prz_)", "", prz_sum, ""])
-    rows.append(["Bilans (prz_ + kos_)", "", round(prz_sum + kos_sum, 2), ""])
+        rows.append(["", "", "", "", "", ""])   # separator
+        rows.append(["Wyciąg — liczba TX", bank_tx_count, "", "", "", ""])
+        rows.append(["Wyciąg — suma kwot", "", "", bank_tx_sum, "", ""])
+    rows.append(["", "", "", "", "", ""])   # separator
+    rows.append(["", "", "", "", "", ""])   # separator
+    rows.append(["Koszty (kos_)", "", kos_sum, "", "", ""])
+    rows.append(["Przychody (prz_)", "", prz_sum, "", "", ""])
+    rows.append(["Bilans (prz_ + kos_)", "", round(prz_sum + kos_sum, 2), "", "", ""])
 
     _api(worksheet.update, f"A{start}", rows, value_input_option="USER_ENTERED")
 
