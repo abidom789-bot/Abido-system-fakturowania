@@ -305,6 +305,23 @@
 
 # Pełne przykłady wierszy A–Q po wprowadzeniu kont księgowych
 
+## Ile kolumn dochodzi?
+
+**3 nowe kolumny: O, P, Q.**
+
+| Kol | Nazwa | Opis |
+|-----|-------|------|
+| O | Dok | symbol dokumentu: FZ / FS / WB / KP / KW / PK |
+| P | Konto_Wn | konto po stronie Winien (skąd koszt / komu należność) |
+| Q | Konto_Ma | konto po stronie Ma (skąd zapłata / jaki przychód) |
+
+**WB nie dochodzi jako osobna kolumna.**
+Informacje z wyciągu bankowego są już w kolumnach E–N (wyciag_Kontrahent, wyciag_Kwota, Data_ksiegowania itd.).
+Kolumna O (Dok) przyjmuje wartość `WB` tylko wtedy gdy wiersz NIE ma faktury (np. przelew do właściciela, kaucja, bankomat).
+Jeśli jest faktura FZ lub FS → Dok = `FZ` / `FS`, a dane bankowe z wyciągu są w E–N obok.
+
+---
+
 > Każdy wiersz pokazuje wszystkie 17 kolumn.
 > Kolumny E–N puste = brak transakcji bankowej (płatność gotówkowa).
 > Kolumny E–N wypełnione = sparowana transakcja z wyciągu bankowego.
@@ -321,7 +338,7 @@
 | B | Kwota brutto | `-63,00` |
 | C | Status | `3` |
 | D | Klucz_Ksiegowy | `kos_rk_kw` |
-| E | wyciag_Kontrahent | *(puste)* |
+| E | wyciag_Kontrahent | *(puste — brak transakcji bankowej)* |
 | F | wyciag_Kwota | *(puste)* |
 | G | Data_ksiegowania | *(puste)* |
 | H | wyciag_Tytul | *(puste)* |
@@ -334,6 +351,13 @@
 | **O** | **Dok** | **`KW`** |
 | **P** | **Konto_Wn** | **`401-MAT`** |
 | **Q** | **Konto_Ma** | **`100`** |
+
+**Wyjaśnienie:**
+- `Dok = KW` → Kasa Wypłaci — płatność gotówkowa (nie przelew bankowy)
+- `Konto_Wn = 401-MAT` → **401** = Zespół 4, konto kosztów rodzajowych "Zużycie materiałów i energii"; **MAT** = podkategoria: materiały budowlane i remontowe. Tu trafia wartość kosztu (-63,00 zł).
+- `Konto_Ma = 100` → **100** = Kasa (gotówka fizyczna). Pieniądze wyszły z kasy, nie z rachunku bankowego. Dlatego kolumny E–N są puste — tej transakcji nie ma na wyciągu bankowym.
+
+---
 
 ### FZ gotówką #2 — Leroy Merlin 14.04.2026 cash.pdf
 
@@ -343,7 +367,7 @@
 | B | Kwota brutto | `-21,98` |
 | C | Status | `3` |
 | D | Klucz_Ksiegowy | `kos_rk_kw` |
-| E | wyciag_Kontrahent | *(puste)* |
+| E | wyciag_Kontrahent | *(puste — brak transakcji bankowej)* |
 | F | wyciag_Kwota | *(puste)* |
 | G | Data_ksiegowania | *(puste)* |
 | H | wyciag_Tytul | *(puste)* |
@@ -356,6 +380,10 @@
 | **O** | **Dok** | **`KW`** |
 | **P** | **Konto_Wn** | **`401-MAT`** |
 | **Q** | **Konto_Ma** | **`100`** |
+
+**Wyjaśnienie:** identyczne jak #1 — zakup za gotówkę w sklepie budowlanym. Konto_Wn i Konto_Ma takie same bo rodzaj transakcji ten sam (materiały, kasa). Różni się tylko wartość (-21,98 zł) i kontrahent (Leroy Merlin zamiast Elkabel).
+
+---
 
 ### FZ przelewem #1 — Allegro ARCHITEA PROSTA SPÓŁKA AKCYJNA 16.4.2026.pdf
 
@@ -379,6 +407,14 @@
 | **P** | **Konto_Wn** | **`401-MAT`** |
 | **Q** | **Konto_Ma** | **`201-ALLE`** |
 
+**Wyjaśnienie:**
+- `Dok = FZ` → Faktura Zakupu — jest dokument PDF (faktura z Allegro)
+- `Konto_Wn = 401-MAT` → **401** = Zespół 4, konto kosztów "Zużycie materiałów i energii"; **MAT** = materiały. Tu trafia wartość kosztu (-73,98 zł).
+- `Konto_Ma = 201-ALLE` → **201** = Zespół 2, konto zobowiązań wobec dostawców (ile jesteśmy winni); **ALLE** = skrót kontrahenta Allegro. Zobowiązanie powstaje w momencie faktury, rozliczane jest przelewem widocznym w kolumnach E–N.
+- Płatność kartą przez Nest Bank jest widoczna w kolumnach E–N (G = data księgowania 2026-04-19).
+
+---
+
 ### FZ przelewem #2 — Netia perzynskiego 042026.pdf
 
 | Kol | Nazwa | Wartość |
@@ -401,6 +437,11 @@
 | **P** | **Konto_Wn** | **`401-MED-INT`** |
 | **Q** | **Konto_Ma** | **`201-NETI`** |
 
+**Wyjaśnienie:**
+- `Dok = FZ` → Faktura Zakupu — jest dokument PDF (faktura od Netii)
+- `Konto_Wn = 401-MED-INT` → **401** = Zespół 4, konto kosztów "Zużycie materiałów i energii"; **MED-INT** = podkategoria mediów: internet/telefon. Odróżniamy media od zwykłych materiałów żeby widzieć ile wydajemy na prąd, gaz, internet osobno.
+- `Konto_Ma = 201-NETI` → **201** = Zespół 2, konto zobowiązań wobec dostawców; **NETI** = skrót Netia S.A. Przelew wychodzący z 2026-04-29 widoczny w kolumnach E–N rozlicza to zobowiązanie.
+
 ---
 
 ## SEGMENT: FAKTURY SPRZEDAŻY NAJEMCOM
@@ -413,7 +454,7 @@
 | B | Kwota brutto | `1 250,00` |
 | C | Status | `2` |
 | D | Klucz_Ksiegowy | `prz_naj_rk_kp` |
-| E | wyciag_Kontrahent | *(puste)* |
+| E | wyciag_Kontrahent | *(puste — brak transakcji bankowej)* |
 | F | wyciag_Kwota | *(puste)* |
 | G | Data_ksiegowania | *(puste)* |
 | H | wyciag_Tytul | *(puste)* |
@@ -427,6 +468,13 @@
 | **P** | **Konto_Wn** | **`100`** |
 | **Q** | **Konto_Ma** | **`700-M03-04`** |
 
+**Wyjaśnienie:**
+- `Dok = KP` → Kasa Przyjmie — najemca zapłacił gotówką do ręki
+- `Konto_Wn = 100` → **100** = Kasa (gotówka fizyczna). Pieniądze weszły do kasy. Dlatego kolumny E–N puste — wpłata gotówkowa nie pojawia się na wyciągu bankowym.
+- `Konto_Ma = 700-M03-04` → **700** = Zespół 7, konto przychodów ze sprzedaży usług najmu (czynsz); **M03** = Nałęczowska 62/66; **04** = Maryam Salayeva (4. najemca w mieszkaniu M03). Tu trafia wartość przychodu (+1 250,00 zł).
+
+---
+
 ### FS gotówką #2 — Oleh Vovchenko
 
 | Kol | Nazwa | Wartość |
@@ -435,7 +483,7 @@
 | B | Kwota brutto | `1 350,00` |
 | C | Status | `2` |
 | D | Klucz_Ksiegowy | `prz_naj_rk_kp` |
-| E | wyciag_Kontrahent | *(puste)* |
+| E | wyciag_Kontrahent | *(puste — brak transakcji bankowej)* |
 | F | wyciag_Kwota | *(puste)* |
 | G | Data_ksiegowania | *(puste)* |
 | H | wyciag_Tytul | *(puste)* |
@@ -448,6 +496,13 @@
 | **O** | **Dok** | **`KP`** |
 | **P** | **Konto_Wn** | **`100`** |
 | **Q** | **Konto_Ma** | **`700-M06-04`** |
+
+**Wyjaśnienie:**
+- `Dok = KP` → Kasa Przyjmie — czynsz zapłacony gotówką
+- `Konto_Wn = 100` → **100** = Kasa. Pieniądze (+1 350,00 zł) weszły fizycznie do kasy.
+- `Konto_Ma = 700-M06-04` → **700** = Zespół 7, przychody z najmu; **M06** = Etiudy Rewolucyjnej 44; **04** = Oleh Vovchenko (4. najemca w M06).
+
+---
 
 ### FS przelewem #1 — Hasan Garip
 
@@ -471,6 +526,14 @@
 | **P** | **Konto_Wn** | **`200-M01-01`** |
 | **Q** | **Konto_Ma** | **`700-M01-01`** |
 
+**Wyjaśnienie:**
+- `Dok = FS` → Faktura Sprzedaży — wystawiona najemcy za czynsz
+- `Konto_Wn = 200-M01-01` → **200** = Zespół 2, konto należności od najemców (ile nam jest winien); **M01** = Perzyńskiego 11a/28; **01** = Hasan Garip (1. najemca w M01). Należność powstaje w momencie wystawienia faktury.
+- `Konto_Ma = 700-M01-01` → **700** = Zespół 7, konto przychodów ze sprzedaży usług najmu; **M01** = Perzyńskiego 11a/28; **01** = Hasan Garip. Tu trafia wartość przychodu (+1 250,00 zł).
+- Przelew przychodzący z 2026-04-03 widoczny w kolumnach E–N rozlicza należność z konta 200-M01-01.
+
+---
+
 ### FS przelewem #2 — Hromovenko Natalia
 
 | Kol | Nazwa | Wartość |
@@ -493,6 +556,12 @@
 | **P** | **Konto_Wn** | **`200-M01-02`** |
 | **Q** | **Konto_Ma** | **`700-M01-02`** |
 
+**Wyjaśnienie:**
+- `Dok = FS` → Faktura Sprzedaży — czynsz za kwiecień 2026
+- `Konto_Wn = 200-M01-02` → **200** = należności od najemców; **M01** = Perzyńskiego 11a/28; **02** = Hromovenko Natalia (2. najemca w M01). To INNE konto niż Hasan Garip (M01-01) — każdy najemca ma swoje.
+- `Konto_Ma = 700-M01-02` → **700** = przychody z najmu; **M01** = Perzyńskiego; **02** = Hromovenko Natalia.
+- Przelew przychodzący z 2026-04-07 w kolumnach E–N.
+
 ---
 
 ## SEGMENT: WŁAŚCICIELE I SPÓŁDZIELNIE
@@ -500,7 +569,7 @@
 > Nota: płatności do właścicieli i spółdzielni są w praktyce zawsze przelewem bankowym.
 > Gotówka może wystąpić wyjątkowo (np. drobna dopłata rozliczana w kasie) — pokazana poniżej jako przykład.
 
-### WLA gotówką #1 — drobna dopłata do rozliczenia (przykład hipotetyczny)
+### WLA gotówką #1 — drobna dopłata do rozliczenia *(przykład hipotetyczny)*
 
 | Kol | Nazwa | Wartość |
 |-----|-------|---------|
@@ -508,7 +577,7 @@
 | B | Kwota brutto | `-150,00` |
 | C | Status | `2` |
 | D | Klucz_Ksiegowy | `wla_rk_kw` |
-| E | wyciag_Kontrahent | *(puste)* |
+| E | wyciag_Kontrahent | *(puste — brak transakcji bankowej)* |
 | F | wyciag_Kwota | *(puste)* |
 | G | Data_ksiegowania | *(puste)* |
 | H | wyciag_Tytul | *(puste)* |
@@ -522,7 +591,14 @@
 | **P** | **Konto_Wn** | **`250-WL01`** |
 | **Q** | **Konto_Ma** | **`100`** |
 
-### WLA gotówką #2 — drobna dopłata do spółdzielni (przykład hipotetyczny)
+**Wyjaśnienie:**
+- `Dok = KW` → Kasa Wypłaci — dopłata wypłacona gotówką z kasy
+- `Konto_Wn = 250-WL01` → **250** = Zespół 2, konto rozrachunków z właścicielami/spółdzielniami (ile im jesteśmy winni); **WL01** = Agnieszka Borkowska (właścicielka M01 Perzyńskiego 11a/28).
+- `Konto_Ma = 100` → **100** = Kasa. Pieniądze wyszły z kasy fizycznie, nie przelewem. Kolumny E–N puste.
+
+---
+
+### WLA gotówką #2 — drobna dopłata do spółdzielni *(przykład hipotetyczny)*
 
 | Kol | Nazwa | Wartość |
 |-----|-------|---------|
@@ -530,7 +606,7 @@
 | B | Kwota brutto | `-85,00` |
 | C | Status | `2` |
 | D | Klucz_Ksiegowy | `wla_med_rk_kw` |
-| E | wyciag_Kontrahent | *(puste)* |
+| E | wyciag_Kontrahent | *(puste — brak transakcji bankowej)* |
 | F | wyciag_Kwota | *(puste)* |
 | G | Data_ksiegowania | *(puste)* |
 | H | wyciag_Tytul | *(puste)* |
@@ -543,6 +619,13 @@
 | **O** | **Dok** | **`KW`** |
 | **P** | **Konto_Wn** | **`250-WL02`** |
 | **Q** | **Konto_Ma** | **`100`** |
+
+**Wyjaśnienie:**
+- `Dok = KW` → Kasa Wypłaci — gotówka z kasy do spółdzielni
+- `Konto_Wn = 250-WL02` → **250** = rozrachunki z właścicielami; **WL02** = Domhut sp. z o.o. (spółdzielnia M01 Perzyńskiego). Inny numer niż WL01 bo właściciel (WL01) i spółdzielnia (WL02) to dwie osobne jednostki płatnicze dla tego samego mieszkania.
+- `Konto_Ma = 100` → **100** = Kasa. Kolumny E–N puste.
+
+---
 
 ### WLA przelewem #1 — Agnieszka Borkowska (właścicielka, Perzyńskiego)
 
@@ -566,6 +649,13 @@
 | **P** | **Konto_Wn** | **`250-WL01`** |
 | **Q** | **Konto_Ma** | **`131`** |
 
+**Wyjaśnienie:**
+- `Dok = WB` → Wyciąg Bankowy — nie ma faktury, jest tylko przelew bankowy do właściciela. Dlatego Dok=WB, nie FZ.
+- `Konto_Wn = 250-WL01` → **250** = Zespół 2, rozrachunki z właścicielami; **WL01** = Agnieszka Borkowska, właścicielka M01 Perzyńskiego 11a/28. Tu trafia wartość zobowiązania (-2 100,00 zł).
+- `Konto_Ma = 131` → **131** = Rachunek bankowy mBank. Pieniądze wyszły z banku przelewem. Przelew z 2026-04-03 widoczny w kolumnach E–N.
+
+---
+
 ### WLA przelewem #2 — Domhut (spółdzielnia, Perzyńskiego)
 
 | Kol | Nazwa | Wartość |
@@ -587,6 +677,11 @@
 | **O** | **Dok** | **`WB`** |
 | **P** | **Konto_Wn** | **`250-WL02`** |
 | **Q** | **Konto_Ma** | **`131`** |
+
+**Wyjaśnienie:**
+- `Dok = WB` → Wyciąg Bankowy — brak faktury, jest tylko przelew do spółdzielni
+- `Konto_Wn = 250-WL02` → **250** = rozrachunki z właścicielami/spółdzielniami; **WL02** = Domhut sp. z o.o. (spółdzielnia obsługująca M01 Perzyńskiego). To osobne konto od WL01 (Agnieszka Borkowska) — jedno mieszkanie ma dwóch odbiorców płatności: właściciela i spółdzielnię.
+- `Konto_Ma = 131` → **131** = Rachunek bankowy mBank. Przelew wychodzący z 2026-04-07 w kolumnach E–N.
 
 ---
 
