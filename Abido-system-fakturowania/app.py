@@ -4014,17 +4014,17 @@ if st.session_state.get("run_sortuj"):
     try:
         creds  = get_credentials()
         client = gspread.authorize(creds)
-            worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(name)
-            with st.spinner("Sortuję Inne RK oraz Nieznane..."):
-                n_inne, n_niezn = sort_inne_rk_nieznane(worksheet)
-            st.success(
-                f"Posortowano: Inne RK — {n_inne} wierszy, "
-                f"Nieznane — {n_niezn} wierszy (kotwice status=3 zachowane)."
-            )
-        except gspread.exceptions.WorksheetNotFound:
-            st.error(f"Arkusz '{name}' nie istnieje.")
-        except Exception as e:
-            st.error(f"Wystąpił błąd: {e}")
+        worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(name)
+        with st.spinner("Sortuję Inne RK oraz Nieznane..."):
+            n_inne, n_niezn = sort_inne_rk_nieznane(worksheet)
+        st.success(
+            f"Posortowano: Inne RK — {n_inne} wierszy, "
+            f"Nieznane — {n_niezn} wierszy (kotwice status=3 zachowane)."
+        )
+    except gspread.exceptions.WorksheetNotFound:
+        st.error(f"Arkusz '{name}' nie istnieje.")
+    except Exception as e:
+        st.error(f"Wystąpił błąd: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Usuń puste wiersze
@@ -4482,50 +4482,49 @@ if st.session_state.get("run_czytaj"):
         creds = get_credentials()
         drive_service = build("drive", "v3", credentials=creds)
 
-            with st.spinner(f"Szukam podfolderu '{name}'..."):
-                subfolder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, f"{name} {FAKTURY_KOSZTOWE_SUFFIX}")
+        with st.spinner(f"Szukam podfolderu '{name}'..."):
+            subfolder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, f"{name} {FAKTURY_KOSZTOWE_SUFFIX}")
 
-            if subfolder is None:
-                st.error(f"Nie znaleziono podfolderu '{name}' w Faktury-kosztowe.")
+        if subfolder is None:
+            st.error(f"Nie znaleziono podfolderu '{name}' w Faktury-kosztowe.")
+        else:
+            with st.spinner("Pobieram liste plikow PDF..."):
+                files = list_pdfs_from_drive(drive_service, subfolder["id"])
+                ksef_sub = find_subfolder(drive_service, subfolder["id"], f"ksef{name}")
+                ksef_files = list_pdfs_from_drive(drive_service, ksef_sub["id"]) if ksef_sub else []
+                all_files = files + ksef_files
+
+            if not all_files:
+                st.warning(f"Brak plikow PDF w podfolderze '{name}'.")
             else:
-                with st.spinner("Pobieram liste plikow PDF..."):
-                    files = list_pdfs_from_drive(drive_service, subfolder["id"])
-                    # Dodaj pliki z podfolderu ksef{name} jesli istnieje
-                    ksef_sub = find_subfolder(drive_service, subfolder["id"], f"ksef{name}")
-                    ksef_files = list_pdfs_from_drive(drive_service, ksef_sub["id"]) if ksef_sub else []
-                    all_files = files + ksef_files
+                if ksef_sub:
+                    st.info(f"Znaleziono podfolder ksef{name} — dołączono {len(ksef_files)} faktur KSeF.")
+                progress = st.progress(0, text="Analizuje faktury...")
+                ksef_ids   = {f["id"] for f in ksef_files}
+                files_data = []
+                for i, f in enumerate(all_files):
+                    progress.progress((i + 1) / len(all_files), text=f"Analizuje: {f['name']}")
+                    brutto = extract_gross_amount(download_pdf(drive_service, f["id"]))
+                    item   = {"key": f["name"], "brutto": brutto}
+                    if f["id"] in ksef_ids:
+                        item["status"] = "1"
+                    files_data.append(item)
+                progress.empty()
 
-                if not all_files:
-                    st.warning(f"Brak plikow PDF w podfolderze '{name}'.")
-                else:
-                    if ksef_sub:
-                        st.info(f"Znaleziono podfolder ksef{name} — dołączono {len(ksef_files)} faktur KSeF.")
-                    progress = st.progress(0, text="Analizuje faktury...")
-                    ksef_ids   = {f["id"] for f in ksef_files}
-                    files_data = []
-                    for i, f in enumerate(all_files):
-                        progress.progress((i + 1) / len(all_files), text=f"Analizuje: {f['name']}")
-                        brutto = extract_gross_amount(download_pdf(drive_service, f["id"]))
-                        item   = {"key": f["name"], "brutto": brutto}
-                        if f["id"] in ksef_ids:
-                            item["status"] = "1"
-                        files_data.append(item)
-                    progress.empty()
-
-                    with st.spinner("Zapisuje do Google Sheets..."):
-                        client = gspread.authorize(creds)
-                        worksheet = get_or_create_worksheet(
-                            client.open_by_key(SPREADSHEET_ID), name
-                        )
-                        skipped, added = sync_kosztowe(worksheet, files_data)
-
-                    st.success(f"Gotowe! Odswiezono: {added} | Zachowano (C=1): {skipped}")
-                    st.dataframe(
-                        [{"Nazwa pliku": d["key"], "Kwota brutto": d["brutto"]} for d in files_data],
-                        use_container_width=True,
+                with st.spinner("Zapisuje do Google Sheets..."):
+                    client = gspread.authorize(creds)
+                    worksheet = get_or_create_worksheet(
+                        client.open_by_key(SPREADSHEET_ID), name
                     )
-        except Exception as e:
-            st.error(f"Wystapil blad: {e}")
+                    skipped, added = sync_kosztowe(worksheet, files_data)
+
+                st.success(f"Gotowe! Odswiezono: {added} | Zachowano (C=1): {skipped}")
+                st.dataframe(
+                    [{"Nazwa pliku": d["key"], "Kwota brutto": d["brutto"]} for d in files_data],
+                    use_container_width=True,
+                )
+    except Exception as e:
+        st.error(f"Wystapil blad: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Zmień nazwy plików KSeF
@@ -4633,35 +4632,34 @@ if st.session_state.get("run_sprzedaz"):
     try:
         creds = get_credentials()
 
-            with st.spinner("Czytam najemcow z arkusza Abido najemcy..."):
-                tenants_data = read_najemcy_for_invoices(creds)
+        with st.spinner("Czytam najemcow z arkusza Abido najemcy..."):
+            tenants_data = read_najemcy_for_invoices(creds)
 
-            if not tenants_data:
-                st.warning("Brak najemcow ze Status=1 w arkuszu Abido najemcy.")
-            else:
-                # Najemcy z umowa od polowy biezacego miesiaca → na koniec
-                cur_month, cur_year = int(name[:2]), int(name[2:])
-                def _sort_key(t):
-                    d = _parse_contract_start(t.get("_dates", ""))
-                    mid = d is not None and d.day > 1 and d.month == cur_month and d.year == cur_year
-                    return (1 if mid else 0, d.day if mid and d else 0)
-                tenants_data.sort(key=_sort_key)
+        if not tenants_data:
+            st.warning("Brak najemcow ze Status=1 w arkuszu Abido najemcy.")
+        else:
+            cur_month, cur_year = int(name[:2]), int(name[2:])
+            def _sort_key(t):
+                d = _parse_contract_start(t.get("_dates", ""))
+                mid = d is not None and d.day > 1 and d.month == cur_month and d.year == cur_year
+                return (1 if mid else 0, d.day if mid and d else 0)
+            tenants_data.sort(key=_sort_key)
 
-                with st.spinner("Zapisuje do Google Sheets..."):
-                    client = gspread.authorize(creds)
-                    worksheet = get_or_create_worksheet(
-                        client.open_by_key(SPREADSHEET_ID), name
-                    )
-                    skipped, added = sync_sprzedaz(worksheet, tenants_data)
+            with st.spinner("Zapisuje do Google Sheets..."):
+                client = gspread.authorize(creds)
+                worksheet = get_or_create_worksheet(
+                    client.open_by_key(SPREADSHEET_ID), name
+                )
+                skipped, added = sync_sprzedaz(worksheet, tenants_data)
 
-                st.session_state["msg_sprzedaz"] = {
-                    "text": f"Gotowe! Dodano: {added} najemcow | Zachowano (C=1): {skipped}",
-                    "tenants": [{"Najemca": t["key"], "Kwota": t["brutto"], "Adres": t["address"]}
-                                for t in tenants_data],
-                }
-                st.rerun()
-        except Exception as e:
-            st.error(f"Wystapil blad: {e}")
+            st.session_state["msg_sprzedaz"] = {
+                "text": f"Gotowe! Dodano: {added} najemcow | Zachowano (C=1): {skipped}",
+                "tenants": [{"Najemca": t["key"], "Kwota": t["brutto"], "Adres": t["address"]}
+                            for t in tenants_data],
+            }
+            st.rerun()
+    except Exception as e:
+        st.error(f"Wystapil blad: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Generuj faktury sprzedazy PDF
@@ -4693,58 +4691,57 @@ if st.session_state.get("run_generuj"):
         drive_service = build("drive", "v3", credentials=creds)
         client        = gspread.authorize(creds)
 
-            with st.spinner("Otwieram arkusz..."):
-                worksheet = get_or_create_worksheet(
-                    client.open_by_key(SPREADSHEET_ID), name
+        with st.spinner("Otwieram arkusz..."):
+            worksheet = get_or_create_worksheet(
+                client.open_by_key(SPREADSHEET_ID), name
+            )
+
+        with st.spinner("Generuje faktury PDF..."):
+            invoices = generate_invoice_pdfs(drive_service, worksheet, name, credentials=creds)
+
+        if not invoices:
+            st.warning("Brak wierszy w sekcji FAKTURY SPRZEDAZY NAJEMCOM.")
+        else:
+            def _show_download_buttons(invoices, name):
+                merged_bytes = merge_pdf_bytes([b for _, b in invoices])
+                st.download_button(
+                    f"Pobierz scalony PDF ({len(invoices)} faktur)",
+                    data=merged_bytes,
+                    file_name=_merged_filename(name, invoices),
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary",
                 )
+                with st.expander("Poszczegolne faktury PDF"):
+                    for filename, pdf_bytes in invoices:
+                        st.download_button(
+                            filename,
+                            data=pdf_bytes,
+                            file_name=filename,
+                            mime="application/pdf",
+                            key=f"dl_{filename}",
+                        )
 
-            with st.spinner("Generuje faktury PDF..."):
-                invoices = generate_invoice_pdfs(drive_service, worksheet, name, credentials=creds)
-
-            if not invoices:
-                st.warning("Brak wierszy w sekcji FAKTURY SPRZEDAZY NAJEMCOM.")
-            else:
-                def _show_download_buttons(invoices, name):
-                    merged_bytes = merge_pdf_bytes([b for _, b in invoices])
-                    st.download_button(
-                        f"Pobierz scalony PDF ({len(invoices)} faktur)",
-                        data=merged_bytes,
-                        file_name=_merged_filename(name, invoices),
-                        mime="application/pdf",
-                        use_container_width=True,
-                        type="primary",
+            user_drive = _get_user_drive_service()
+            if user_drive:
+                try:
+                    with st.spinner("Wgrywam na Google Drive..."):
+                        folder_name = upload_invoices_to_drive(user_drive, invoices, name)
+                    st.success(
+                        f"Gotowe! Wygenerowano {len(invoices)} faktur. "
+                        f"Folder na Drive: '{folder_name}'"
                     )
-                    with st.expander("Poszczegolne faktury PDF"):
-                        for filename, pdf_bytes in invoices:
-                            st.download_button(
-                                filename,
-                                data=pdf_bytes,
-                                file_name=filename,
-                                mime="application/pdf",
-                                key=f"dl_{filename}",
-                            )
-
-                # Próbuj wgrać na Drive przez user OAuth credentials
-                user_drive = _get_user_drive_service()
-                if user_drive:
-                    try:
-                        with st.spinner("Wgrywam na Google Drive..."):
-                            folder_name = upload_invoices_to_drive(user_drive, invoices, name)
-                        st.success(
-                            f"Gotowe! Wygenerowano {len(invoices)} faktur. "
-                            f"Folder na Drive: '{folder_name}'"
-                        )
-                    except Exception as drive_err:
-                        st.warning(
-                            f"Nie udalo sie wgrac na Drive ({drive_err}). "
-                            f"Pobierz faktury ponizej."
-                        )
-                        _show_download_buttons(invoices, name)
-                else:
-                    st.success(f"Wygenerowano {len(invoices)} faktur. Pobierz ponizej.")
+                except Exception as drive_err:
+                    st.warning(
+                        f"Nie udalo sie wgrac na Drive ({drive_err}). "
+                        f"Pobierz faktury ponizej."
+                    )
                     _show_download_buttons(invoices, name)
-        except Exception as e:
-            st.error(f"Wystapil blad: {e}")
+            else:
+                st.success(f"Wygenerowano {len(invoices)} faktur. Pobierz ponizej.")
+                _show_download_buttons(invoices, name)
+    except Exception as e:
+        st.error(f"Wystapil blad: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Sprawdz stan faktur sprzedazy
