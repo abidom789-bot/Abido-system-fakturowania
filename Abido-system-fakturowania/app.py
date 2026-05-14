@@ -2112,7 +2112,7 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
                 "startColumnIndex": 1,
                 "endColumnIndex": 2,
             },
-            "cell": {"userEnteredFormat": {"numberFormat": {"type": "NUMBER", "pattern": "#,##0.##"}}},
+            "cell": {"userEnteredFormat": {"numberFormat": {"type": "NUMBER", "pattern": "0"}}},
             "fields": "userEnteredFormat.numberFormat",
         }
     }]})
