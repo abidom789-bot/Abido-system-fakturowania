@@ -1366,10 +1366,7 @@ def check_sprzedaz_status(drive_service, credentials, spreadsheet_id, sheet_name
         if not row or not row[0]:
             continue
         b = row[1] if len(row) > 1 else None
-        try:
-            val = float(str(b).replace(",", ".").replace(" ", "")) if b is not None else 0.0
-        except ValueError:
-            val = 0.0
+        val = _parse_amount(b) or 0.0
         if val > 0:
             sheet_szt   += 1
             sheet_kwota += val
