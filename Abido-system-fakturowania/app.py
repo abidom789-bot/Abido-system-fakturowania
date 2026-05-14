@@ -2098,6 +2098,25 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
 
     _batch_format_rows(worksheet, row_fmts)
 
+    # Kolumna B w arkuszu ma format walutowy (to kolumna "Kwota brutto").
+    # Resetujemy format liczbowy kol B w całym zakresie podsumowania,
+    # żeby "Ilość pozycji" wyświetlała się jako gołe liczby, nie "27,00zł".
+    _sum_rows = len(rows)
+    _sheet_id = worksheet._properties["sheetId"]
+    _api(worksheet.spreadsheet.batch_update, {"requests": [{
+        "repeatCell": {
+            "range": {
+                "sheetId": _sheet_id,
+                "startRowIndex": start - 1,
+                "endRowIndex": start - 1 + _sum_rows,
+                "startColumnIndex": 1,
+                "endColumnIndex": 2,
+            },
+            "cell": {"userEnteredFormat": {"numberFormat": {"type": "NUMBER", "pattern": "#,##0.##"}}},
+            "fields": "userEnteredFormat.numberFormat",
+        }
+    }]})
+
     return bank_diag
 
 
