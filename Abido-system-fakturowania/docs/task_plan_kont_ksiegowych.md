@@ -6,7 +6,47 @@
 
 ---
 
-## Decyzja architektoniczna (zatwierdzona)
+## Zatwierdzone decyzje projektowe
+
+### 1. Jeden wiersz = jedna faktura (architektura bez zmian)
+Kolumny A+B = faktura, kolumny E-N = sparowana transakcja z wyciągu. Bez podziału na FZ+WB.
+
+### 2. Słownik kontrahentów — zakładka w głównym arkuszu GSheets
+Zakładka np. `"Kontrahenci"` w `SPREADSHEET_ID`. Zawiera:
+- Kody dostawców (Castorama → 201-CAST, Netia → 201-NETI...)
+- Kody najemców i mieszkań — pobierane z arkusza `"Aktualni najemcy"` w `ABIDO_NAJEMCY_ID`
+  (tam już będą kody mieszkań i kody najemców)
+- Wszystko w jednym miejscu: zakupy, media, najemcy, właściciele, ZUS, US
+
+### 3. Automatyczne rozpoznawanie kont przez program
+Program na podstawie nazwy pliku PDF + kontrahenta z wyciągu nadaje Konto_Wn i Konto_Ma automatycznie.
+Użytkownik sprawdza wyniki i zgłasza błędy.
+
+### 4. Pętla uczenia się — historia uwag i korekt (KLUCZOWE)
+Mechanizm ciągłego doskonalenia rozpoznawania:
+
+```
+[Program nadaje konta automatycznie]
+         ↓
+[Użytkownik sprawdza w arkuszu]
+         ↓
+[Użytkownik zgłasza błędy do Claude]
+         ↓
+[Claude zapisuje błędy do pliku historii: docs/historia_uwag_kont.md]
+         ↓
+[Claude poprawia logikę rozpoznawania w kodzie]
+         ↓
+[Historia pozostaje na zawsze w projekcie jako dokumentacja decyzji]
+```
+
+Plik historii: `docs/historia_uwag_kont.md`
+- Każda korekta zapisywana z datą, opisem błędu i zmianą w kodzie
+- Nigdy nie kasowany — jest dowodem dlaczego kod działa tak jak działa
+- Przy nowej sesji Claude czyta ten plik i zna kontekst wszystkich poprzednich poprawek
+
+---
+
+## Decyzja architektoniczna (zatwierdzona — jeden wiersz)
 
 **Jeden wiersz = jeden koszt/faktura.**
 - Kolumny A i B = faktura (nazwa pliku PDF, kwota brutto)
