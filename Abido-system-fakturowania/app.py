@@ -3993,10 +3993,27 @@ if btn_sortuj_inne_rk:
     if not subfolder_name.strip():
         st.error("Wpisz nazwe podfolderu.")
     else:
-        name = subfolder_name.strip()
-        try:
-            creds  = get_credentials()
-            client = gspread.authorize(creds)
+        st.session_state["confirm_sortuj"] = subfolder_name.strip()
+
+if st.session_state.get("confirm_sortuj"):
+    _confirm_name = st.session_state["confirm_sortuj"]
+    st.warning(
+        f"⚠️ Czy na pewno chcesz posortować Inne RK oraz Nieznane w arkuszu **{_confirm_name}**?"
+    )
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        if st.button("✅ Tak, sortuj", key="confirm_sortuj_tak", use_container_width=True, type="primary"):
+            st.session_state.pop("confirm_sortuj", None)
+            st.session_state["run_sortuj"] = _confirm_name
+    with _c2:
+        if st.button("❌ Anuluj", key="confirm_sortuj_nie", use_container_width=True):
+            st.session_state.pop("confirm_sortuj", None)
+
+if st.session_state.get("run_sortuj"):
+    name = st.session_state.pop("run_sortuj")
+    try:
+        creds  = get_credentials()
+        client = gspread.authorize(creds)
             worksheet = client.open_by_key(SPREADSHEET_ID).worksheet(name)
             with st.spinner("Sortuję Inne RK oraz Nieznane..."):
                 n_inne, n_niezn = sort_inne_rk_nieznane(worksheet)
@@ -4080,22 +4097,39 @@ if btn_szablon:
     if not subfolder_name.strip():
         st.error("Wpisz nazwe podfolderu (np. 052026).")
     else:
-        name = subfolder_name.strip()
-        try:
-            creds  = get_credentials()
-            client = gspread.authorize(creds)
-            sp     = client.open_by_key(SPREADSHEET_ID)
-            with st.spinner(f"Tworzę szablon dla {name}..."):
-                status, added = create_month_template(sp, name)
-            if status == "created":
-                st.success(f"Szablon {name} utworzony. Dodano {len(added)} sekcji.")
-            elif status == "exists_partial":
-                names = ", ".join(added)
-                st.warning(f"{name} już istnieje. Dodano brakujące sekcje: {names}")
-            else:
-                st.info(f"{name} już istnieje — wszystkie sekcje są kompletne.")
-        except Exception as e:
-            st.error(f"Wystąpił błąd: {e}")
+        st.session_state["confirm_szablon"] = subfolder_name.strip()
+
+if st.session_state.get("confirm_szablon"):
+    _confirm_name = st.session_state["confirm_szablon"]
+    st.warning(
+        f"⚠️ Czy na pewno chcesz utworzyć szablon miesiąca **{_confirm_name}**?"
+    )
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        if st.button("✅ Tak, utwórz", key="confirm_szablon_tak", use_container_width=True, type="primary"):
+            st.session_state.pop("confirm_szablon", None)
+            st.session_state["run_szablon"] = _confirm_name
+    with _c2:
+        if st.button("❌ Anuluj", key="confirm_szablon_nie", use_container_width=True):
+            st.session_state.pop("confirm_szablon", None)
+
+if st.session_state.get("run_szablon"):
+    name = st.session_state.pop("run_szablon")
+    try:
+        creds  = get_credentials()
+        client = gspread.authorize(creds)
+        sp     = client.open_by_key(SPREADSHEET_ID)
+        with st.spinner(f"Tworzę szablon dla {name}..."):
+            status, added = create_month_template(sp, name)
+        if status == "created":
+            st.success(f"Szablon {name} utworzony. Dodano {len(added)} sekcji.")
+        elif status == "exists_partial":
+            names = ", ".join(added)
+            st.warning(f"{name} już istnieje. Dodano brakujące sekcje: {names}")
+        else:
+            st.info(f"{name} już istnieje — wszystkie sekcje są kompletne.")
+    except Exception as e:
+        st.error(f"Wystąpił błąd: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Search Drive
@@ -4263,19 +4297,36 @@ if btn_refresh_kpkw:
     if not subfolder_name.strip():
         st.error("Wpisz nazwe podfolderu.")
     else:
-        name = subfolder_name.strip()
-        try:
-            creds = get_credentials()
-            client = gspread.authorize(creds)
-            with st.spinner("Odświeżam KP / KW..."):
-                worksheet = get_or_create_worksheet(
-                    client.open_by_key(SPREADSHEET_ID), name
-                )
-                sections_kpkw = read_all_sections(worksheet)
-                refresh_kp_kw(client.open_by_key(SPREADSHEET_ID), name, sections_kpkw)
-            st.success(f"KP / KW zaktualizowane dla {name}.")
-        except Exception as e:
-            st.error(f"Wystapil blad: {e}")
+        st.session_state["confirm_kpkw"] = subfolder_name.strip()
+
+if st.session_state.get("confirm_kpkw"):
+    _confirm_name = st.session_state["confirm_kpkw"]
+    st.warning(
+        f"⚠️ Czy na pewno chcesz odświeżyć KP / KW dla arkusza **{_confirm_name}**?"
+    )
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        if st.button("✅ Tak, odśwież", key="confirm_kpkw_tak", use_container_width=True, type="primary"):
+            st.session_state.pop("confirm_kpkw", None)
+            st.session_state["run_kpkw"] = _confirm_name
+    with _c2:
+        if st.button("❌ Anuluj", key="confirm_kpkw_nie", use_container_width=True):
+            st.session_state.pop("confirm_kpkw", None)
+
+if st.session_state.get("run_kpkw"):
+    name = st.session_state.pop("run_kpkw")
+    try:
+        creds = get_credentials()
+        client = gspread.authorize(creds)
+        with st.spinner("Odświeżam KP / KW..."):
+            worksheet = get_or_create_worksheet(
+                client.open_by_key(SPREADSHEET_ID), name
+            )
+            sections_kpkw = read_all_sections(worksheet)
+            refresh_kp_kw(client.open_by_key(SPREADSHEET_ID), name, sections_kpkw)
+        st.success(f"KP / KW zaktualizowane dla {name}.")
+    except Exception as e:
+        st.error(f"Wystapil blad: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Pokaz KP / KW (podglad bez zapisu)
@@ -4408,10 +4459,28 @@ if btn_czytaj:
     if not subfolder_name.strip():
         st.error("Wpisz nazwe podfolderu przed uruchomieniem.")
     else:
-        name = subfolder_name.strip()
-        try:
-            creds = get_credentials()
-            drive_service = build("drive", "v3", credentials=creds)
+        st.session_state["confirm_czytaj"] = subfolder_name.strip()
+
+if st.session_state.get("confirm_czytaj"):
+    _confirm_name = st.session_state["confirm_czytaj"]
+    st.warning(
+        f"⚠️ Czy na pewno chcesz zaczytać faktury kosztowe dla **{_confirm_name}**? "
+        f"Istniejące wiersze bez statusu 1 zostaną nadpisane."
+    )
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        if st.button("✅ Tak, zaczytaj", key="confirm_czytaj_tak", use_container_width=True, type="primary"):
+            st.session_state.pop("confirm_czytaj", None)
+            st.session_state["run_czytaj"] = _confirm_name
+    with _c2:
+        if st.button("❌ Anuluj", key="confirm_czytaj_nie", use_container_width=True):
+            st.session_state.pop("confirm_czytaj", None)
+
+if st.session_state.get("run_czytaj"):
+    name = st.session_state.pop("run_czytaj")
+    try:
+        creds = get_credentials()
+        drive_service = build("drive", "v3", credentials=creds)
 
             with st.spinner(f"Szukam podfolderu '{name}'..."):
                 subfolder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, f"{name} {FAKTURY_KOSZTOWE_SUFFIX}")
@@ -4542,9 +4611,27 @@ if btn_sprzedaz:
     if not subfolder_name.strip():
         st.error("Wpisz nazwe podfolderu przed uruchomieniem.")
     else:
-        name = subfolder_name.strip()
-        try:
-            creds = get_credentials()
+        st.session_state["confirm_sprzedaz"] = subfolder_name.strip()
+
+if st.session_state.get("confirm_sprzedaz"):
+    _confirm_name = st.session_state["confirm_sprzedaz"]
+    st.warning(
+        f"⚠️ Czy na pewno chcesz utworzyć wstępne wiersze faktur sprzedaży dla **{_confirm_name}**? "
+        f"Istniejące wiersze bez statusu 1 zostaną nadpisane."
+    )
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        if st.button("✅ Tak, utwórz", key="confirm_sprzedaz_tak", use_container_width=True, type="primary"):
+            st.session_state.pop("confirm_sprzedaz", None)
+            st.session_state["run_sprzedaz"] = _confirm_name
+    with _c2:
+        if st.button("❌ Anuluj", key="confirm_sprzedaz_nie", use_container_width=True):
+            st.session_state.pop("confirm_sprzedaz", None)
+
+if st.session_state.get("run_sprzedaz"):
+    name = st.session_state.pop("run_sprzedaz")
+    try:
+        creds = get_credentials()
 
             with st.spinner("Czytam najemcow z arkusza Abido najemcy..."):
                 tenants_data = read_najemcy_for_invoices(creds)
@@ -4583,11 +4670,28 @@ if btn_generuj_pdf:
     if not subfolder_name.strip():
         st.error("Wpisz nazwe podfolderu przed generowaniem.")
     else:
-        name = subfolder_name.strip()
-        try:
-            creds         = get_credentials()
-            drive_service = build("drive", "v3", credentials=creds)
-            client        = gspread.authorize(creds)
+        st.session_state["confirm_generuj"] = subfolder_name.strip()
+
+if st.session_state.get("confirm_generuj"):
+    _confirm_name = st.session_state["confirm_generuj"]
+    st.warning(
+        f"⚠️ Czy na pewno chcesz wygenerować faktury sprzedaży PDF dla **{_confirm_name}**?"
+    )
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        if st.button("✅ Tak, generuj", key="confirm_generuj_tak", use_container_width=True, type="primary"):
+            st.session_state.pop("confirm_generuj", None)
+            st.session_state["run_generuj"] = _confirm_name
+    with _c2:
+        if st.button("❌ Anuluj", key="confirm_generuj_nie", use_container_width=True):
+            st.session_state.pop("confirm_generuj", None)
+
+if st.session_state.get("run_generuj"):
+    name = st.session_state.pop("run_generuj")
+    try:
+        creds         = get_credentials()
+        drive_service = build("drive", "v3", credentials=creds)
+        client        = gspread.authorize(creds)
 
             with st.spinner("Otwieram arkusz..."):
                 worksheet = get_or_create_worksheet(
