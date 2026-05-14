@@ -364,7 +364,8 @@ SELLER_ADDR1   = "ul. Henryka Sienkiewicza 85/87"
 SELLER_ADDR2   = "90-057 Łódź"
 SELLER_NIP     = "NIP: 7252283544"
 SELLER_ACCOUNT = "Nr konta: 98 1870 1045 2078 1071 3878 0001"
-FAKTURY_SPRZEDAZY_PREFIX = "Faktury sprzedazy"
+FAKTURY_KOSZTOWE_SUFFIX  = "Faktury kosztowe"
+FAKTURY_SPRZEDAZY_SUFFIX = "Faktury sprzedazy"
 
 _PDF_FONTS_CACHED: dict = {}
 _FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
@@ -800,7 +801,7 @@ def upload_invoices_to_drive(user_drive_service, invoices, subfolder_name):
     Wgrywa faktury PDF na Drive uzywajac user OAuth credentials.
     Tworzy folder 'Faktury sprzedazy MMRRRR' wewnatrz 'Faktury-sprzedazy'.
     """
-    folder_name = f"{FAKTURY_SPRZEDAZY_PREFIX} {subfolder_name}"
+    folder_name = f"{subfolder_name} {FAKTURY_SPRZEDAZY_SUFFIX}"
     parent_id   = get_or_create_subfolder(user_drive_service, FOLDER_ID, "Faktury-sprzedazy")
     folder_id   = get_or_create_subfolder(user_drive_service, parent_id, folder_name)
     for filename, pdf_b in invoices:
@@ -3292,7 +3293,7 @@ def search_najemca_pdfs(service, imie, nazwisko, tabs, mode="AND"):
 
     results = []
     for tab in tabs:
-        folder_name  = f"{FAKTURY_SPRZEDAZY_PREFIX} {tab}"
+        folder_name  = f"{tab} {FAKTURY_SPRZEDAZY_SUFFIX}"
         month_folder = find_subfolder(service, sprzedaz_folder["id"], folder_name)
         if not month_folder:
             continue
@@ -4278,7 +4279,7 @@ if btn_sprawdz:
             creds = get_credentials()
             drive_service = build("drive", "v3", credentials=creds)
             with st.spinner("Sprawdzam..."):
-                subfolder    = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, name)
+                subfolder    = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, f"{name} {FAKTURY_KOSZTOWE_SUFFIX}")
                 if subfolder:
                     drive_files = list_pdfs_from_drive(drive_service, subfolder["id"])
                     ksef_sub = find_subfolder(drive_service, subfolder["id"], f"ksef{name}")
@@ -4349,7 +4350,7 @@ if btn_czytaj:
             drive_service = build("drive", "v3", credentials=creds)
 
             with st.spinner(f"Szukam podfolderu '{name}'..."):
-                subfolder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, name)
+                subfolder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, f"{name} {FAKTURY_KOSZTOWE_SUFFIX}")
 
             if subfolder is None:
                 st.error(f"Nie znaleziono podfolderu '{name}' w Faktury-kosztowe.")
@@ -4407,7 +4408,7 @@ if btn_ksef:
             drive_service = build("drive", "v3", credentials=creds)
 
             with st.spinner(f"Szukam folderu miesiąca '{name}'..."):
-                month_folder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, name)
+                month_folder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, f"{name} {FAKTURY_KOSZTOWE_SUFFIX}")
 
             if month_folder is None:
                 st.error(f"Nie znaleziono folderu miesiąca '{name}' w Faktury-kosztowe.")
@@ -4610,14 +4611,14 @@ if btn_wyswietl:
                         ).execute()
                         for f in resp.get("files", []):
                             file_links[f["name"]] = f.get("webViewLink", "")
-                    kos_folder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, name)
+                    kos_folder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, f"{name} {FAKTURY_KOSZTOWE_SUFFIX}")
                     if kos_folder:
                         _fetch_links(kos_folder["id"])
                     sprzedaz_root = find_subfolder(drive_service, FOLDER_ID, "Faktury-sprzedazy")
                     if sprzedaz_root:
                         sprzedaz_sub = find_subfolder(
                             drive_service, sprzedaz_root["id"],
-                            f"{FAKTURY_SPRZEDAZY_PREFIX} {name}"
+                            f"{name} {FAKTURY_SPRZEDAZY_SUFFIX}"
                         )
                         if sprzedaz_sub:
                             _fetch_links(sprzedaz_sub["id"])
