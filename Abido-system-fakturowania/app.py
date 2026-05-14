@@ -1318,6 +1318,26 @@ def sync_sprzedaz(worksheet, tenants_data):
     return skipped, added
 
 
+def diff_kosztowe(credentials, spreadsheet_id, sheet_name, drive_file_names):
+    """Porownuje pliki na Drive z wierszami w sekcji KOSZTOWE arkusza.
+    Zwraca (tylko_na_drive, tylko_w_sheets) — posortowane listy nazw."""
+    client = gspread.authorize(credentials)
+    spreadsheet = client.open_by_key(spreadsheet_id)
+    try:
+        worksheet = spreadsheet.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        return None, None
+    rows = read_all_sections(worksheet)[SEP_KOSZTOWE]
+    sheet_names = set()
+    for row in rows:
+        if row and row[0]:
+            sheet_names.add(str(row[0]).strip())
+    drive_set = set(drive_file_names)
+    only_drive  = sorted(drive_set  - sheet_names)
+    only_sheets = sorted(sheet_names - drive_set)
+    return only_drive, only_sheets
+
+
 def count_kosztowe_statuses(credentials, spreadsheet_id, sheet_name):
     """Liczy tylko wiersze z sekcji KOSZTOWE w arkuszu."""
     client = gspread.authorize(credentials)
@@ -4258,8 +4278,16 @@ if btn_sprawdz:
             drive_service = build("drive", "v3", credentials=creds)
             with st.spinner("Sprawdzam..."):
                 subfolder    = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, name)
-                drive_count  = len(list_pdfs_from_drive(drive_service, subfolder["id"])) if subfolder else 0
+                if subfolder:
+                    drive_files = list_pdfs_from_drive(drive_service, subfolder["id"])
+                    ksef_sub = find_subfolder(drive_service, subfolder["id"], f"ksef{name}")
+                    if ksef_sub:
+                        drive_files += list_pdfs_from_drive(drive_service, ksef_sub["id"])
+                    drive_file_names = [f["name"] for f in drive_files]
+                else:
+                    drive_file_names = []
                 sheet_counts = count_kosztowe_statuses(creds, SPREADSHEET_ID, name)
+                only_drive, only_sheets = diff_kosztowe(creds, SPREADSHEET_ID, name, drive_file_names)
 
             st.subheader(f"Faktury kosztowe — {name}")
             col_a, col_b = st.columns(2)
@@ -4269,7 +4297,7 @@ if btn_sprawdz:
                     if not subfolder:
                         st.warning("Nie znaleziono folderu na Drive.")
                     else:
-                        st.metric("Pliki PDF", drive_count)
+                        st.metric("Pliki PDF", len(drive_file_names))
             with col_b:
                 st.markdown("**Google Sheets (sekcja kosztowa)**")
                 with st.container(border=True):
@@ -4282,6 +4310,28 @@ if btn_sprawdz:
                             f"- Zweryfikowane (1): **{sheet_counts['1']}**  \n"
                             f"- Inne: **{sheet_counts['inne']}**"
                         )
+
+            if only_drive is not None and only_sheets is not None:
+                if only_drive or only_sheets:
+                    st.markdown("---")
+                    st.markdown("**Roznice:**")
+                    diff_col_a, diff_col_b = st.columns(2)
+                    with diff_col_a:
+                        st.markdown(f"**Na Drive, brak w Sheets ({len(only_drive)})**")
+                        if only_drive:
+                            for fname in only_drive:
+                                st.markdown(f"- {fname}")
+                        else:
+                            st.markdown("*(brak)*")
+                    with diff_col_b:
+                        st.markdown(f"**W Sheets, brak na Drive ({len(only_sheets)})**")
+                        if only_sheets:
+                            for fname in only_sheets:
+                                st.markdown(f"- {fname}")
+                        else:
+                            st.markdown("*(brak)*")
+                else:
+                    st.success("Drive i Sheets sa zgodne — brak roznic.")
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
