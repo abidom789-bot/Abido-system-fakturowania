@@ -299,3 +299,442 @@
 | 100 | Kasa (gotówka fizyczna) |
 | 131 | Rachunek bankowy mBank |
 | 240-Mxx-xx | Kaucja najemcy do zwrotu (depozyt) |
+
+---
+---
+
+# Pełne przykłady wierszy A–Q po wprowadzeniu kont księgowych
+
+> Każdy wiersz pokazuje wszystkie 17 kolumn.
+> Kolumny E–N puste = brak transakcji bankowej (płatność gotówkowa).
+> Kolumny E–N wypełnione = sparowana transakcja z wyciągu bankowego.
+
+---
+
+## SEGMENT: FAKTURY KOSZTOWE
+
+### FZ gotówką #1 — Elkabel 1.4.2026 cash.pdf
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Elkabel 1.4.2026 cash.pdf` |
+| B | Kwota brutto | `-63,00` |
+| C | Status | `3` |
+| D | Klucz_Ksiegowy | `kos_rk_kw` |
+| E | wyciag_Kontrahent | *(puste)* |
+| F | wyciag_Kwota | *(puste)* |
+| G | Data_ksiegowania | *(puste)* |
+| H | wyciag_Tytul | *(puste)* |
+| I | wyciag_Data_op | *(puste)* |
+| J | wyciag_Rodzaj | *(puste)* |
+| K | wyciag_Waluta | *(puste)* |
+| L | wyciag_Nr_rachunku | *(puste)* |
+| M | wyciag_Imie_Nazwisko | *(puste)* |
+| N | Uwagi | *(puste)* |
+| **O** | **Dok** | **`KW`** |
+| **P** | **Konto_Wn** | **`401-MAT`** |
+| **Q** | **Konto_Ma** | **`100`** |
+
+### FZ gotówką #2 — Leroy Merlin 14.04.2026 cash.pdf
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Leroy Merlin 14.04.2026 cash.pdf` |
+| B | Kwota brutto | `-21,98` |
+| C | Status | `3` |
+| D | Klucz_Ksiegowy | `kos_rk_kw` |
+| E | wyciag_Kontrahent | *(puste)* |
+| F | wyciag_Kwota | *(puste)* |
+| G | Data_ksiegowania | *(puste)* |
+| H | wyciag_Tytul | *(puste)* |
+| I | wyciag_Data_op | *(puste)* |
+| J | wyciag_Rodzaj | *(puste)* |
+| K | wyciag_Waluta | *(puste)* |
+| L | wyciag_Nr_rachunku | *(puste)* |
+| M | wyciag_Imie_Nazwisko | *(puste)* |
+| N | Uwagi | *(puste)* |
+| **O** | **Dok** | **`KW`** |
+| **P** | **Konto_Wn** | **`401-MAT`** |
+| **Q** | **Konto_Ma** | **`100`** |
+
+### FZ przelewem #1 — Allegro ARCHITEA PROSTA SPÓŁKA AKCYJNA 16.4.2026.pdf
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Allegro ARCHITEA PROSTA SPÓŁKA AKCYJNA 16.4.2026.pdf` |
+| B | Kwota brutto | `-73,98` |
+| C | Status | `2` |
+| D | Klucz_Ksiegowy | `kos_pr_out` |
+| E | wyciag_Kontrahent | `Nest Bank S.A.` |
+| F | wyciag_Kwota | `-73,98` |
+| G | Data_ksiegowania | `2026-04-19` |
+| H | wyciag_Tytul | `Allegro Poznan Nr karty ...3752 73,98PLN` |
+| I | wyciag_Data_op | `2026-04-16` |
+| J | wyciag_Rodzaj | `Płatności kartą` |
+| K | wyciag_Waluta | `PLN` |
+| L | wyciag_Nr_rachunku | `37253000087082010009560002` |
+| M | wyciag_Imie_Nazwisko | `Allegro Poznan` |
+| N | Uwagi | *(puste)* |
+| **O** | **Dok** | **`FZ`** |
+| **P** | **Konto_Wn** | **`401-MAT`** |
+| **Q** | **Konto_Ma** | **`201-ALLE`** |
+
+### FZ przelewem #2 — Netia perzynskiego 042026.pdf
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Netia perzynskiego 042026.pdf` |
+| B | Kwota brutto | `-43,00` |
+| C | Status | `2` |
+| D | Klucz_Ksiegowy | `kos_med_pr_out` |
+| E | wyciag_Kontrahent | `NETIA S.A.` |
+| F | wyciag_Kwota | `-43,00` |
+| G | Data_ksiegowania | `2026-04-29` |
+| H | wyciag_Tytul | `Netia Perzyńskiego za bieżący miesiąc 45999265` |
+| I | wyciag_Data_op | `2026-04-29` |
+| J | wyciag_Rodzaj | `Przelewy wychodzące` |
+| K | wyciag_Waluta | `PLN` |
+| L | wyciag_Nr_rachunku | `51114015601530994599926585` |
+| M | wyciag_Imie_Nazwisko | `NETIA S.A.` |
+| N | Uwagi | *(puste)* |
+| **O** | **Dok** | **`FZ`** |
+| **P** | **Konto_Wn** | **`401-MED-INT`** |
+| **Q** | **Konto_Ma** | **`201-NETI`** |
+
+---
+
+## SEGMENT: FAKTURY SPRZEDAŻY NAJEMCOM
+
+### FS gotówką #1 — Maryam Salayeva
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Maryam Salayeva` |
+| B | Kwota brutto | `1 250,00` |
+| C | Status | `2` |
+| D | Klucz_Ksiegowy | `prz_naj_rk_kp` |
+| E | wyciag_Kontrahent | *(puste)* |
+| F | wyciag_Kwota | *(puste)* |
+| G | Data_ksiegowania | *(puste)* |
+| H | wyciag_Tytul | *(puste)* |
+| I | wyciag_Data_op | *(puste)* |
+| J | wyciag_Rodzaj | *(puste)* |
+| K | wyciag_Waluta | *(puste)* |
+| L | wyciag_Nr_rachunku | *(puste)* |
+| M | wyciag_Imie_Nazwisko | *(puste)* |
+| N | Uwagi | *(puste)* |
+| **O** | **Dok** | **`KP`** |
+| **P** | **Konto_Wn** | **`100`** |
+| **Q** | **Konto_Ma** | **`700-M03-04`** |
+
+### FS gotówką #2 — Oleh Vovchenko
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Oleh Vovchenko` |
+| B | Kwota brutto | `1 350,00` |
+| C | Status | `2` |
+| D | Klucz_Ksiegowy | `prz_naj_rk_kp` |
+| E | wyciag_Kontrahent | *(puste)* |
+| F | wyciag_Kwota | *(puste)* |
+| G | Data_ksiegowania | *(puste)* |
+| H | wyciag_Tytul | *(puste)* |
+| I | wyciag_Data_op | *(puste)* |
+| J | wyciag_Rodzaj | *(puste)* |
+| K | wyciag_Waluta | *(puste)* |
+| L | wyciag_Nr_rachunku | *(puste)* |
+| M | wyciag_Imie_Nazwisko | *(puste)* |
+| N | Uwagi | *(puste)* |
+| **O** | **Dok** | **`KP`** |
+| **P** | **Konto_Wn** | **`100`** |
+| **Q** | **Konto_Ma** | **`700-M06-04`** |
+
+### FS przelewem #1 — Hasan Garip
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Hasan Garip` |
+| B | Kwota brutto | `1 250,00` |
+| C | Status | `2` |
+| D | Klucz_Ksiegowy | `prz_naj_pr_in` |
+| E | wyciag_Kontrahent | `HASAN GARIP UL. JÓZEFA BEMA 5/48/2` |
+| F | wyciag_Kwota | `1 250,00` |
+| G | Data_ksiegowania | `2026-04-03` |
+| H | wyciag_Tytul | `pokoj1 perzynskiego kwiecien` |
+| I | wyciag_Data_op | `2026-04-03` |
+| J | wyciag_Rodzaj | `Przelewy przychodzące` |
+| K | wyciag_Waluta | `PLN` |
+| L | wyciag_Nr_rachunku | `56109025900000000147810984` |
+| M | wyciag_Imie_Nazwisko | `HASAN GARIP UL. JÓZEFA BEMA 5/48/2` |
+| N | Uwagi | *(puste)* |
+| **O** | **Dok** | **`FS`** |
+| **P** | **Konto_Wn** | **`200-M01-01`** |
+| **Q** | **Konto_Ma** | **`700-M01-01`** |
+
+### FS przelewem #2 — Hromovenko Natalia
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Hromovenko Natalia` |
+| B | Kwota brutto | `1 800,00` |
+| C | Status | `2` |
+| D | Klucz_Ksiegowy | `prz_naj_pr_in` |
+| E | wyciag_Kontrahent | `HROMOVENKO NATALKA` |
+| F | wyciag_Kwota | `1 800,00` |
+| G | Data_ksiegowania | `2026-04-07` |
+| H | wyciag_Tytul | `Czynsz najmu za.04. 2026 - Perzynskiego 11a/28` |
+| I | wyciag_Data_op | `2026-04-07` |
+| J | wyciag_Rodzaj | `Przelewy przychodzące` |
+| K | wyciag_Waluta | `PLN` |
+| L | wyciag_Nr_rachunku | `04116022020000000669143204` |
+| M | wyciag_Imie_Nazwisko | `HROMOVENKO NATALKA` |
+| N | Uwagi | *(puste)* |
+| **O** | **Dok** | **`FS`** |
+| **P** | **Konto_Wn** | **`200-M01-02`** |
+| **Q** | **Konto_Ma** | **`700-M01-02`** |
+
+---
+
+## SEGMENT: WŁAŚCICIELE I SPÓŁDZIELNIE
+
+> Nota: płatności do właścicieli i spółdzielni są w praktyce zawsze przelewem bankowym.
+> Gotówka może wystąpić wyjątkowo (np. drobna dopłata rozliczana w kasie) — pokazana poniżej jako przykład.
+
+### WLA gotówką #1 — drobna dopłata do rozliczenia (przykład hipotetyczny)
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Agnieszka Borkowska dopłata 04.2026` |
+| B | Kwota brutto | `-150,00` |
+| C | Status | `2` |
+| D | Klucz_Ksiegowy | `wla_rk_kw` |
+| E | wyciag_Kontrahent | *(puste)* |
+| F | wyciag_Kwota | *(puste)* |
+| G | Data_ksiegowania | *(puste)* |
+| H | wyciag_Tytul | *(puste)* |
+| I | wyciag_Data_op | *(puste)* |
+| J | wyciag_Rodzaj | *(puste)* |
+| K | wyciag_Waluta | *(puste)* |
+| L | wyciag_Nr_rachunku | *(puste)* |
+| M | wyciag_Imie_Nazwisko | *(puste)* |
+| N | Uwagi | `dopłata gotówkowa` |
+| **O** | **Dok** | **`KW`** |
+| **P** | **Konto_Wn** | **`250-WL01`** |
+| **Q** | **Konto_Ma** | **`100`** |
+
+### WLA gotówką #2 — drobna dopłata do spółdzielni (przykład hipotetyczny)
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Domhut dopłata woda 04.2026` |
+| B | Kwota brutto | `-85,00` |
+| C | Status | `2` |
+| D | Klucz_Ksiegowy | `wla_med_rk_kw` |
+| E | wyciag_Kontrahent | *(puste)* |
+| F | wyciag_Kwota | *(puste)* |
+| G | Data_ksiegowania | *(puste)* |
+| H | wyciag_Tytul | *(puste)* |
+| I | wyciag_Data_op | *(puste)* |
+| J | wyciag_Rodzaj | *(puste)* |
+| K | wyciag_Waluta | *(puste)* |
+| L | wyciag_Nr_rachunku | *(puste)* |
+| M | wyciag_Imie_Nazwisko | *(puste)* |
+| N | Uwagi | `dopłata gotówkowa za wodę` |
+| **O** | **Dok** | **`KW`** |
+| **P** | **Konto_Wn** | **`250-WL02`** |
+| **Q** | **Konto_Ma** | **`100`** |
+
+### WLA przelewem #1 — Agnieszka Borkowska (właścicielka, Perzyńskiego)
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Agnieszka Borkowska` |
+| B | Kwota brutto | `-2 100,00` |
+| C | Status | `2` |
+| D | Klucz_Ksiegowy | `wla_pr_out` |
+| E | wyciag_Kontrahent | `Agnieszka Borkowska` |
+| F | wyciag_Kwota | `-2 100,00` |
+| G | Data_ksiegowania | `2026-04-03` |
+| H | wyciag_Tytul | `Czynsz za wynajem mieszkania za aktualny miesiąc - Perzyńskiego 11a/28` |
+| I | wyciag_Data_op | `2026-04-03` |
+| J | wyciag_Rodzaj | `Przelewy wychodzące` |
+| K | wyciag_Waluta | `PLN` |
+| L | wyciag_Nr_rachunku | `24102010970000780200488726` |
+| M | wyciag_Imie_Nazwisko | `Agnieszka Borkowska` |
+| N | Uwagi | *(puste)* |
+| **O** | **Dok** | **`WB`** |
+| **P** | **Konto_Wn** | **`250-WL01`** |
+| **Q** | **Konto_Ma** | **`131`** |
+
+### WLA przelewem #2 — Domhut (spółdzielnia, Perzyńskiego)
+
+| Kol | Nazwa | Wartość |
+|-----|-------|---------|
+| A | Nazwa / Plik | `Domhut` |
+| B | Kwota brutto | `-1 583,15` |
+| C | Status | `2` |
+| D | Klucz_Ksiegowy | `wla_pr_out` |
+| E | wyciag_Kontrahent | `Spółdzielnia mieszkaniowa DOMHUT` |
+| F | wyciag_Kwota | `-1 583,15` |
+| G | Data_ksiegowania | `2026-04-07` |
+| H | wyciag_Tytul | `Czynsz do spółdzielni za aktualny miesiąc - Perzyńskiego 11a/28` |
+| I | wyciag_Data_op | `2026-04-07` |
+| J | wyciag_Rodzaj | `Przelewy wychodzące` |
+| K | wyciag_Waluta | `PLN` |
+| L | wyciag_Nr_rachunku | `13102010261226807451001217` |
+| M | wyciag_Imie_Nazwisko | `Spółdzielnia mieszkaniowa DOMHUT` |
+| N | Uwagi | *(puste)* |
+| **O** | **Dok** | **`WB`** |
+| **P** | **Konto_Wn** | **`250-WL02`** |
+| **Q** | **Konto_Ma** | **`131`** |
+
+---
+
+---
+
+# Legenda — jak czytać kody kont
+
+## Struktura kodu konta: `[ZESPÓŁ]-[OBIEKT/SKRÓT]-[NUMER]`
+
+---
+
+### Konta 200-Mxx-xx — należności od najemców (Konto_Wn w FS)
+
+```
+200  -  M01  -  01
+ │       │       │
+ │       │       └── numer najemcy w tym mieszkaniu
+ │       │           01 = Hasan Garip (pierwszy najemca M01)
+ │       │           02 = Hromovenko Natalia (drugi najemca M01)
+ │       │           03 = Zuzanna Sarnowska (trzeci najemca M01)
+ │       │
+ │       └── kod mieszkania (obiekt)
+ │           M01 = Perzyńskiego 11a/28
+ │           M02 = Omulewska 18
+ │           M03 = Nałęczowska 62/66
+ │           M04 = Balkonowa 1
+ │           ... (pełna lista w sekcji Słownik kontrahentów)
+ │
+ └── 200 = Zespół 2, Konto rozrachunków z najemcami
+     Znaczenie: ILE NAJEMCA JEST NAM WINIEN (należność)
+     Saldo Wn = najemca jeszcze nie zapłacił
+     Saldo = 0  = najemca zapłacił w całości
+```
+
+---
+
+### Konta 700-Mxx-xx — przychody z najmu (Konto_Ma w FS)
+
+```
+700  -  M01  -  01
+ │       │       │
+ │       │       └── numer najemcy (ten sam co w 200)
+ │       │           01 = Hasan Garip
+ │       │
+ │       └── kod mieszkania (ten sam co w 200)
+ │           M01 = Perzyńskiego 11a/28
+ │
+ └── 700 = Zespół 7, Przychody ze sprzedaży usług najmu
+     Znaczenie: ILE ZAROBILIŚMY NA TYM POKOJU/MIESZKANIU
+     Saldo Ma = suma przychodów z tego najemcy w danym miesiącu
+```
+
+> Powiązanie: 200-M01-01 i 700-M01-01 zawsze dotyczą tej samej osoby (Hasan Garip, M01).
+> Konto 200 = "co nam winien", konto 700 = "co zarobiliśmy".
+
+---
+
+### Konta 201-XXXX — zobowiązania wobec dostawców (Konto_Ma w FZ)
+
+```
+201  -  NETI
+ │       │
+ │       └── skrót nazwy kontrahenta
+ │           NETI  = Netia S.A.
+ │           ALLE  = Allegro
+ │           EONS  = E.ON Polska S.A.
+ │           PGNIG = PGNiG Obrót Detaliczny
+ │           PLAY  = P4 Sp. z o.o. (Play)
+ │           CAST  = Castorama
+ │           LERO  = Leroy Merlin
+ │           MAFI  = Mafika Accounting
+ │           ... (pełna lista w sekcji D słownika)
+ │
+ └── 201 = Zespół 2, Konto rozrachunków z dostawcami
+     Znaczenie: ILE JESTEŚMY WINNI DOSTAWCY (zobowiązanie)
+     Saldo Ma = faktura zapłacona jeszcze
+     Saldo = 0 = faktura opłacona przelewem
+```
+
+---
+
+### Konta 250-WLxx — zobowiązania wobec właścicieli (Konto_Wn w WLA)
+
+```
+250  -  WL01
+ │       │
+ │       └── numer właściciela / spółdzielni
+ │           WL01 = Agnieszka Borkowska (właścicielka M01 Perzyńskiego)
+ │           WL02 = Domhut sp. z o.o. (spółdzielnia M01 Perzyńskiego)
+ │           WL03 = Elżbieta Biller (właścicielka M02 Omulewska)
+ │           WL04 = S.B.M. Grenadierów (spółdzielnia M02 Omulewska)
+ │           ... (pełna lista w sekcji C słownika)
+ │
+ └── 250 = Zespół 2, Rozrachunki różne
+     Znaczenie: ILE MUSIMY ZAPŁACIĆ WŁAŚCICIELOWI/SPÓŁDZIELNI
+```
+
+---
+
+### Konta kosztów 401-xxx i 402-xxx (Konto_Wn w FZ)
+
+```
+401  -  MAT
+ │       │
+ │       └── podkategoria kosztu
+ │           MAT     = materiały budowlane, remontowe (farba, narzędzia, AGD)
+ │           MED-EL  = media — prąd (EON, Enea)
+ │           MED-GAZ = media — gaz (PGNiG, PSG)
+ │           MED-INT = media — internet i telefon (Netia, Play)
+ │           MED-WOD = media — woda i ścieki
+ │
+ └── 401 = Zespół 4, Zużycie materiałów i energii
+
+402  -  REM
+ │       │
+ │       └── podkategoria usługi
+ │           REM   = remonty i naprawy (hydraulik, elektryk)
+ │           KSIEG = usługi księgowe (Mafika)
+ │           ADM   = usługi administracyjne
+ │
+ └── 402 = Zespół 4, Usługi obce
+```
+
+---
+
+### Konta własne — bez kontrahenta
+
+```
+100  = Kasa (gotówka fizyczna w sejfie / portfelu)
+       Pojawia się gdy płacisz lub otrzymujesz GOTÓWKĄ (nie przelewem)
+       Konto_Ma = 100  → gotówka WYSZŁA z kasy (KW)
+       Konto_Wn = 100  → gotówka WESZŁA do kasy (KP)
+
+131  = Rachunek bankowy mBank
+       Pojawia się przy każdym przelewie wychodzącym lub przychodzącym
+       Konto_Ma = 131  → pieniądze WYSZŁY z banku (przelew wychodzący)
+       Konto_Wn = 131  → pieniądze WESZŁY do banku (przelew przychodzący)
+```
+
+---
+
+### Symbole dokumentów — skrót
+
+| Symbol | Pełna nazwa | Kiedy |
+|--------|-------------|-------|
+| `FZ` | Faktura Zakupu | faktura kosztowa — zakup materiałów, usług, mediów |
+| `FS` | Faktura Sprzedaży | faktura wystawiona najemcy — czynsz miesięczny |
+| `WB` | Wyciąg Bankowy | operacja bankowa bez faktury — właściciele, kaucje, bankomat |
+| `KP` | Kasa Przyjmie | gotówka WPŁYNĘŁA — czynsz gotówką, wpłata kaucji |
+| `KW` | Kasa Wypłaci | gotówka WYPŁYNĘŁA — zakup za gotówkę, wypłata gotówkowa |
+| `PK` | Polecenie Księgowania | wynagrodzenia, ZUS, korekty, przeksięgowania |
