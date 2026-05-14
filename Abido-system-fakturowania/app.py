@@ -505,6 +505,7 @@ def _parse_contract_start(dates_str):
 
 def _normalize_name_for_filename(name):
     """Normalizuje nazwe do uzycia w nazwie pliku: male litery, bez polskich znakow, _ zamiast spacji."""
+    name = name.replace("Ł", "L").replace("ł", "l")   # Ł nie rozklada sie przez NFKD
     nfkd = unicodedata.normalize("NFKD", name)
     ascii_str = nfkd.encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", "_", ascii_str.lower()).strip("_")
