@@ -1320,6 +1320,69 @@ def sync_sprzedaz(worksheet, tenants_data):
     return skipped, added
 
 
+def check_sprzedaz_status(drive_service, credentials, spreadsheet_id, sheet_name):
+    """Sprawdza stan faktur sprzedazy: plik zbiorczy na Drive vs suma/liczba w Sheets.
+    Zwraca dict z kluczami: drive_filename, drive_szt, drive_kwota, sheet_szt, sheet_kwota."""
+    # --- Drive: szukaj pliku Fs_najemcy_* w folderze MMYYYY Faktury sprzedazy ---
+    sprzedaz_root = find_subfolder(drive_service, FOLDER_ID, "Faktury-sprzedazy")
+    drive_filename = None
+    drive_szt      = None
+    drive_kwota    = None
+    if sprzedaz_root:
+        month_folder = find_subfolder(
+            drive_service, sprzedaz_root["id"],
+            f"{sheet_name} {FAKTURY_SPRZEDAZY_SUFFIX}"
+        )
+        if month_folder:
+            query = (
+                f"'{month_folder['id']}' in parents "
+                "and mimeType='application/pdf' "
+                "and name contains 'Fs_najemcy_' "
+                "and trashed=false"
+            )
+            results = drive_service.files().list(
+                q=query, fields="files(name)", orderBy="name"
+            ).execute()
+            files = results.get("files", [])
+            if files:
+                drive_filename = files[-1]["name"]   # najnowszy jeśli kilka
+                # Wyciągnij szt i kwotę z nazwy: Fs_najemcy_042026_54szt_89305zl_07052026.pdf
+                m = re.search(r"_(\d+)szt_(\d+)zl_", drive_filename)
+                if m:
+                    drive_szt   = int(m.group(1))
+                    drive_kwota = int(m.group(2))
+
+    # --- Sheets: suma kolumny B i liczba wierszy SEP_SPRZEDAZ ---
+    client = gspread.authorize(credentials)
+    spreadsheet = client.open_by_key(spreadsheet_id)
+    try:
+        worksheet = spreadsheet.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        return None
+    rows = read_all_sections(worksheet)[SEP_SPRZEDAZ]
+    sheet_szt   = 0
+    sheet_kwota = 0.0
+    for row in rows:
+        if not row or not row[0]:
+            continue
+        b = row[1] if len(row) > 1 else None
+        try:
+            val = float(str(b).replace(",", ".").replace(" ", "")) if b is not None else 0.0
+        except ValueError:
+            val = 0.0
+        if val > 0:
+            sheet_szt   += 1
+            sheet_kwota += val
+
+    return {
+        "drive_filename": drive_filename,
+        "drive_szt":      drive_szt,
+        "drive_kwota":    drive_kwota,
+        "sheet_szt":      sheet_szt,
+        "sheet_kwota":    sheet_kwota,
+    }
+
+
 def diff_kosztowe(credentials, spreadsheet_id, sheet_name, drive_file_names):
     """Porownuje pliki na Drive z wierszami w sekcji KOSZTOWE arkusza.
     Zwraca (tylko_na_drive, tylko_w_sheets) — posortowane listy nazw."""
@@ -3888,6 +3951,10 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
                 "Generuj faktury sprzedazy PDF",
                 use_container_width=True,
             )
+            btn_sprawdz_sprzedaz = st.button(
+                "Sprawdz stan faktur sprzedazy",
+                use_container_width=True,
+            )
 
     with right_col:
         with st.container(border=True):
@@ -4575,6 +4642,59 @@ if btn_generuj_pdf:
                 else:
                     st.success(f"Wygenerowano {len(invoices)} faktur. Pobierz ponizej.")
                     _show_download_buttons(invoices, name)
+        except Exception as e:
+            st.error(f"Wystapil blad: {e}")
+
+# ----------------------------------------------------------------
+# AKCJA: Sprawdz stan faktur sprzedazy
+# ----------------------------------------------------------------
+if btn_sprawdz_sprzedaz:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu przed sprawdzeniem.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds         = get_credentials()
+            drive_service = build("drive", "v3", credentials=creds)
+            with st.spinner("Sprawdzam..."):
+                data = check_sprzedaz_status(drive_service, creds, SPREADSHEET_ID, name)
+
+            if data is None:
+                st.error(f"Brak arkusza '{name}'.")
+            else:
+                st.subheader(f"Faktury sprzedazy — {name}")
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.markdown("**Google Drive (plik zbiorczy)**")
+                    with st.container(border=True):
+                        if data["drive_filename"]:
+                            st.markdown(f"`{data['drive_filename']}`")
+                            st.metric("Sztuk (z nazwy pliku)",  data["drive_szt"]   or "?")
+                            st.metric("Kwota zł (z nazwy pliku)", data["drive_kwota"] or "?")
+                        else:
+                            st.warning("Brak pliku Fs_najemcy_* na Drive.")
+                with col_b:
+                    st.markdown("**Google Sheets (sekcja sprzedazy)**")
+                    with st.container(border=True):
+                        st.metric("Wierszy z kwotą > 0", data["sheet_szt"])
+                        st.metric("Suma kolumny B (zł)", f"{data['sheet_kwota']:,.0f}".replace(",", " "))
+
+                if data["drive_filename"] and data["drive_szt"] is not None:
+                    szt_ok   = data["drive_szt"]   == data["sheet_szt"]
+                    kwota_ok = data["drive_kwota"]  == int(round(data["sheet_kwota"]))
+                    if szt_ok and kwota_ok:
+                        st.success("Drive i Sheets sa zgodne — sztuki i kwota sie zgadzaja.")
+                    else:
+                        if not szt_ok:
+                            st.warning(
+                                f"Roznica sztuk: Drive={data['drive_szt']}, "
+                                f"Sheets={data['sheet_szt']}"
+                            )
+                        if not kwota_ok:
+                            st.warning(
+                                f"Roznica kwoty: Drive={data['drive_kwota']} zl, "
+                                f"Sheets={int(round(data['sheet_kwota']))} zl"
+                            )
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
 
