@@ -3611,10 +3611,12 @@ with st.expander("Szukanie Google Sheets", expanded=False):
                 if row.name == _sh_last:
                     return ["background-color:#FFF3CD;font-weight:bold"] * len(row)
                 return [""] * len(row)
+            _sh_height = min((len(_sh_df_sum) + 1) * 35 + 3, 600)
             st.dataframe(
                 _sh_df_sum.style.apply(_sh_highlight, axis=1),
                 use_container_width=True,
                 hide_index=True,
+                height=_sh_height,
             )
         else:
             st.info("Brak wyników dla wybranych tagów.")
