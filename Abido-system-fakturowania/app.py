@@ -4082,9 +4082,11 @@ if st.session_state.get("confirm_sortuj"):
         if st.button("✅ Tak, sortuj", key="confirm_sortuj_tak", use_container_width=True, type="primary"):
             st.session_state.pop("confirm_sortuj", None)
             st.session_state["run_sortuj"] = _confirm_name
+            st.rerun()
     with _c2:
         if st.button("❌ Anuluj", key="confirm_sortuj_nie", use_container_width=True):
             st.session_state.pop("confirm_sortuj", None)
+            st.rerun()
 
 if st.session_state.get("run_sortuj"):
     name = st.session_state.pop("run_sortuj")
@@ -4186,9 +4188,11 @@ if st.session_state.get("confirm_szablon"):
         if st.button("✅ Tak, utwórz", key="confirm_szablon_tak", use_container_width=True, type="primary"):
             st.session_state.pop("confirm_szablon", None)
             st.session_state["run_szablon"] = _confirm_name
+            st.rerun()
     with _c2:
         if st.button("❌ Anuluj", key="confirm_szablon_nie", use_container_width=True):
             st.session_state.pop("confirm_szablon", None)
+            st.rerun()
 
 if st.session_state.get("run_szablon"):
     name = st.session_state.pop("run_szablon")
@@ -4386,9 +4390,11 @@ if st.session_state.get("confirm_kpkw"):
         if st.button("✅ Tak, odśwież", key="confirm_kpkw_tak", use_container_width=True, type="primary"):
             st.session_state.pop("confirm_kpkw", None)
             st.session_state["run_kpkw"] = _confirm_name
+            st.rerun()
     with _c2:
         if st.button("❌ Anuluj", key="confirm_kpkw_nie", use_container_width=True):
             st.session_state.pop("confirm_kpkw", None)
+            st.rerun()
 
 if st.session_state.get("run_kpkw"):
     name = st.session_state.pop("run_kpkw")
@@ -4513,9 +4519,11 @@ if st.session_state.get("confirm_czytaj"):
         if st.button("✅ Tak, zaczytaj", key="confirm_czytaj_tak", use_container_width=True, type="primary"):
             st.session_state.pop("confirm_czytaj", None)
             st.session_state["run_czytaj"] = _confirm_name
+            st.rerun()
     with _c2:
         if st.button("❌ Anuluj", key="confirm_czytaj_nie", use_container_width=True):
             st.session_state.pop("confirm_czytaj", None)
+            st.rerun()
 
 if st.session_state.get("run_czytaj"):
     name = st.session_state.pop("run_czytaj")
@@ -4664,9 +4672,11 @@ if st.session_state.get("confirm_sprzedaz"):
         if st.button("✅ Tak, utwórz", key="confirm_sprzedaz_tak", use_container_width=True, type="primary"):
             st.session_state.pop("confirm_sprzedaz", None)
             st.session_state["run_sprzedaz"] = _confirm_name
+            st.rerun()
     with _c2:
         if st.button("❌ Anuluj", key="confirm_sprzedaz_nie", use_container_width=True):
             st.session_state.pop("confirm_sprzedaz", None)
+            st.rerun()
 
 if st.session_state.get("run_sprzedaz"):
     name = st.session_state.pop("run_sprzedaz")
@@ -4721,9 +4731,11 @@ if st.session_state.get("confirm_generuj"):
         if st.button("✅ Tak, generuj", key="confirm_generuj_tak", use_container_width=True, type="primary"):
             st.session_state.pop("confirm_generuj", None)
             st.session_state["run_generuj"] = _confirm_name
+            st.rerun()
     with _c2:
         if st.button("❌ Anuluj", key="confirm_generuj_nie", use_container_width=True):
             st.session_state.pop("confirm_generuj", None)
+            st.rerun()
 
 if st.session_state.get("run_generuj"):
     name = st.session_state.pop("run_generuj")
