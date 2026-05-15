@@ -4405,52 +4405,64 @@ if btn_sprawdz:
                     drive_file_names = []
                 sheet_counts = count_kosztowe_statuses(creds, SPREADSHEET_ID, name)
                 only_drive, only_sheets = diff_kosztowe(creds, SPREADSHEET_ID, name, drive_file_names)
-
-            st.subheader(f"Faktury kosztowe — {name}")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.markdown("**Google Drive**")
-                with st.container(border=True):
-                    if not subfolder:
-                        st.warning("Nie znaleziono folderu na Drive.")
-                    else:
-                        st.metric("Pliki PDF", len(drive_file_names))
-            with col_b:
-                st.markdown("**Google Sheets (sekcja kosztowa)**")
-                with st.container(border=True):
-                    if sheet_counts is None:
-                        st.warning("Brak arkusza o tej nazwie.")
-                    else:
-                        st.metric("Wierszy lacznie", sum(sheet_counts.values()))
-                        st.markdown(
-                            f"- Niezweryfikowane (0): **{sheet_counts['0']}**  \n"
-                            f"- Zweryfikowane (1): **{sheet_counts['1']}**  \n"
-                            f"- Inne: **{sheet_counts['inne']}**"
-                        )
-
-            if only_drive is not None and only_sheets is not None:
-                if only_drive or only_sheets:
-                    st.markdown("---")
-                    st.markdown("**Roznice:**")
-                    diff_col_a, diff_col_b = st.columns(2)
-                    with diff_col_a:
-                        st.markdown(f"**Na Drive, brak w Sheets ({len(only_drive)})**")
-                        if only_drive:
-                            for fname in only_drive:
-                                st.markdown(f"- {fname}")
-                        else:
-                            st.markdown("*(brak)*")
-                    with diff_col_b:
-                        st.markdown(f"**W Sheets, brak na Drive ({len(only_sheets)})**")
-                        if only_sheets:
-                            for fname in only_sheets:
-                                st.markdown(f"- {fname}")
-                        else:
-                            st.markdown("*(brak)*")
-                else:
-                    st.success("Drive i Sheets sa zgodne — brak roznic.")
+            st.session_state["kosztowe_status"] = {
+                "name": name,
+                "subfolder_found": bool(subfolder),
+                "drive_file_names": drive_file_names,
+                "sheet_counts": sheet_counts,
+                "only_drive": only_drive,
+                "only_sheets": only_sheets,
+            }
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
+
+if st.session_state.get("kosztowe_status"):
+    _ks = st.session_state["kosztowe_status"]
+    st.subheader(f"Faktury kosztowe — {_ks['name']}")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("**Google Drive**")
+        with st.container(border=True):
+            if not _ks["subfolder_found"]:
+                st.warning("Nie znaleziono folderu na Drive.")
+            else:
+                st.metric("Pliki PDF", len(_ks["drive_file_names"]))
+    with col_b:
+        st.markdown("**Google Sheets (sekcja kosztowa)**")
+        with st.container(border=True):
+            if _ks["sheet_counts"] is None:
+                st.warning("Brak arkusza o tej nazwie.")
+            else:
+                st.metric("Wierszy lacznie", sum(_ks["sheet_counts"].values()))
+                st.markdown(
+                    f"- Niezweryfikowane (0): **{_ks['sheet_counts']['0']}**  \n"
+                    f"- Zweryfikowane (1): **{_ks['sheet_counts']['1']}**  \n"
+                    f"- Inne: **{_ks['sheet_counts']['inne']}**"
+                )
+
+    only_drive  = _ks["only_drive"]
+    only_sheets = _ks["only_sheets"]
+    if only_drive is not None and only_sheets is not None:
+        if only_drive or only_sheets:
+            st.markdown("---")
+            st.markdown("**Roznice:**")
+            diff_col_a, diff_col_b = st.columns(2)
+            with diff_col_a:
+                st.markdown(f"**Na Drive, brak w Sheets ({len(only_drive)})**")
+                if only_drive:
+                    for fname in only_drive:
+                        st.markdown(f"- {fname}")
+                else:
+                    st.markdown("*(brak)*")
+            with diff_col_b:
+                st.markdown(f"**W Sheets, brak na Drive ({len(only_sheets)})**")
+                if only_sheets:
+                    for fname in only_sheets:
+                        st.markdown(f"- {fname}")
+                else:
+                    st.markdown("*(brak)*")
+        else:
+            st.success("Drive i Sheets sa zgodne — brak roznic.")
 
 # ----------------------------------------------------------------
 # AKCJA: Zaczytaj faktury kosztowe
