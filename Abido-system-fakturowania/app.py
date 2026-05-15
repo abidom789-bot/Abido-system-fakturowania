@@ -4756,45 +4756,55 @@ if btn_sprawdz_sprzedaz:
             drive_service = build("drive", "v3", credentials=creds)
             with st.spinner("Sprawdzam..."):
                 data = check_sprzedaz_status(drive_service, creds, SPREADSHEET_ID, name)
-
             if data is None:
-                st.error(f"Brak arkusza '{name}'.")
+                st.session_state["sprzedaz_status"] = {"name": name, "error": True}
             else:
-                st.subheader(f"Faktury sprzedazy — {name}")
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    st.markdown("**Google Drive (plik zbiorczy)**")
-                    with st.container(border=True):
-                        if data["drive_filename"]:
-                            st.markdown(f"`{data['drive_filename']}`")
-                            st.metric("Sztuk (z nazwy pliku)",  data["drive_szt"]   or "?")
-                            st.metric("Kwota zł (z nazwy pliku)", data["drive_kwota"] or "?")
-                        else:
-                            st.warning("Brak pliku Fs_najemcy_* na Drive.")
-                with col_b:
-                    st.markdown("**Google Sheets (sekcja sprzedazy)**")
-                    with st.container(border=True):
-                        st.metric("Wierszy z kwotą > 0", data["sheet_szt"])
-                        st.metric("Suma kolumny B (zł)", f"{data['sheet_kwota']:,.0f}".replace(",", " "))
-
-                if data["drive_filename"] and data["drive_szt"] is not None:
-                    szt_ok   = data["drive_szt"]   == data["sheet_szt"]
-                    kwota_ok = data["drive_kwota"]  == int(round(data["sheet_kwota"]))
-                    if szt_ok and kwota_ok:
-                        st.success("Drive i Sheets sa zgodne — sztuki i kwota sie zgadzaja.")
-                    else:
-                        if not szt_ok:
-                            st.warning(
-                                f"Roznica sztuk: Drive={data['drive_szt']}, "
-                                f"Sheets={data['sheet_szt']}"
-                            )
-                        if not kwota_ok:
-                            st.warning(
-                                f"Roznica kwoty: Drive={data['drive_kwota']} zl, "
-                                f"Sheets={int(round(data['sheet_kwota']))} zl"
-                            )
+                st.session_state["sprzedaz_status"] = {"name": name, "data": data, "error": False}
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
+
+if st.session_state.get("sprzedaz_status"):
+    _ss = st.session_state["sprzedaz_status"]
+    _ss_name = _ss["name"]
+    if _ss["error"]:
+        st.error(f"Brak arkusza '{_ss_name}'.")
+    else:
+        data = _ss["data"]
+        st.subheader(f"Faktury sprzedazy — {_ss_name}")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**Google Drive (plik zbiorczy)**")
+            with st.container(border=True):
+                if data["drive_filename"]:
+                    st.markdown(f"`{data['drive_filename']}`")
+                    st.metric("Sztuk (z nazwy pliku)",
+                              data["drive_szt"] if data["drive_szt"] is not None else "?")
+                    st.metric("Kwota zł (z nazwy pliku)",
+                              data["drive_kwota"] if data["drive_kwota"] is not None else "?")
+                else:
+                    st.warning("Brak pliku Fs_najemcy_* na Drive.")
+        with col_b:
+            st.markdown("**Google Sheets (sekcja sprzedazy)**")
+            with st.container(border=True):
+                st.metric("Wierszy z kwotą > 0", data["sheet_szt"])
+                st.metric("Suma kolumny B (zł)", f"{data['sheet_kwota']:,.0f}".replace(",", " "))
+
+        if data["drive_filename"] and data["drive_szt"] is not None:
+            szt_ok   = data["drive_szt"]  == data["sheet_szt"]
+            kwota_ok = data["drive_kwota"] == int(round(data["sheet_kwota"]))
+            if szt_ok and kwota_ok:
+                st.success("Drive i Sheets sa zgodne — sztuki i kwota sie zgadzaja.")
+            else:
+                if not szt_ok:
+                    st.warning(
+                        f"Roznica sztuk: Drive={data['drive_szt']}, "
+                        f"Sheets={data['sheet_szt']}"
+                    )
+                if not kwota_ok:
+                    st.warning(
+                        f"Roznica kwoty: Drive={data['drive_kwota']} zl, "
+                        f"Sheets={int(round(data['sheet_kwota']))} zl"
+                    )
 
 # ----------------------------------------------------------------
 # AKCJA: Wyswietl ex
