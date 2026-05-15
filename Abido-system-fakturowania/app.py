@@ -3849,6 +3849,83 @@ with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
     def _dialog_podglad_kp_kw(html):
         st.markdown(html, unsafe_allow_html=True)
 
+    @st.dialog("Stan faktur kosztowych", width="large")
+    def _dialog_kosztowe_status(ks):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**Google Drive**")
+            with st.container(border=True):
+                if not ks["subfolder_found"]:
+                    st.warning("Nie znaleziono folderu na Drive.")
+                else:
+                    st.metric("Pliki PDF", len(ks["drive_file_names"]))
+        with col_b:
+            st.markdown("**Google Sheets (sekcja kosztowa)**")
+            with st.container(border=True):
+                if ks["sheet_counts"] is None:
+                    st.warning("Brak arkusza o tej nazwie.")
+                else:
+                    st.metric("Wierszy lacznie", sum(ks["sheet_counts"].values()))
+                    st.markdown(
+                        f"- Niezweryfikowane (0): **{ks['sheet_counts']['0']}**  \n"
+                        f"- Zweryfikowane (1): **{ks['sheet_counts']['1']}**  \n"
+                        f"- Inne: **{ks['sheet_counts']['inne']}**"
+                    )
+        only_drive  = ks["only_drive"]
+        only_sheets = ks["only_sheets"]
+        if only_drive is not None and only_sheets is not None:
+            if only_drive or only_sheets:
+                st.markdown("---")
+                st.markdown("**Roznice:**")
+                d_col_a, d_col_b = st.columns(2)
+                with d_col_a:
+                    st.markdown(f"**Na Drive, brak w Sheets ({len(only_drive)})**")
+                    for fname in (only_drive or ["*(brak)*"]):
+                        st.markdown(f"- {fname}")
+                with d_col_b:
+                    st.markdown(f"**W Sheets, brak na Drive ({len(only_sheets)})**")
+                    for fname in (only_sheets or ["*(brak)*"]):
+                        st.markdown(f"- {fname}")
+            else:
+                st.success("Drive i Sheets sa zgodne — brak roznic.")
+
+    @st.dialog("Stan faktur sprzedazy", width="large")
+    def _dialog_sprzedaz_status(ss):
+        data = ss["data"]
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**Google Drive (plik zbiorczy)**")
+            with st.container(border=True):
+                if data["drive_filename"]:
+                    st.markdown(f"`{data['drive_filename']}`")
+                    st.metric("Sztuk (z nazwy pliku)",
+                              data["drive_szt"] if data["drive_szt"] is not None else "?")
+                    st.metric("Kwota zł (z nazwy pliku)",
+                              data["drive_kwota"] if data["drive_kwota"] is not None else "?")
+                else:
+                    st.warning("Brak pliku Fs_najemcy_* na Drive.")
+        with col_b:
+            st.markdown("**Google Sheets (sekcja sprzedazy)**")
+            with st.container(border=True):
+                st.metric("Wierszy z kwotą > 0", data["sheet_szt"])
+                st.metric("Suma kolumny B (zł)", f"{data['sheet_kwota']:,.0f}".replace(",", " "))
+        if data["drive_filename"] and data["drive_szt"] is not None:
+            szt_ok   = data["drive_szt"]  == data["sheet_szt"]
+            kwota_ok = data["drive_kwota"] == int(round(data["sheet_kwota"]))
+            if szt_ok and kwota_ok:
+                st.success("Drive i Sheets sa zgodne — sztuki i kwota sie zgadzaja.")
+            else:
+                if not szt_ok:
+                    st.warning(
+                        f"Roznica sztuk: Drive={data['drive_szt']}, "
+                        f"Sheets={data['sheet_szt']}"
+                    )
+                if not kwota_ok:
+                    st.warning(
+                        f"Roznica kwoty: Drive={data['drive_kwota']} zl, "
+                        f"Sheets={int(round(data['sheet_kwota']))} zl"
+                    )
+
     @st.dialog("Wynik parowania", width="large")
     def _dialog_wynik_parowania(data):
         sparowane   = data["sparowane"]
@@ -4405,64 +4482,16 @@ if btn_sprawdz:
                     drive_file_names = []
                 sheet_counts = count_kosztowe_statuses(creds, SPREADSHEET_ID, name)
                 only_drive, only_sheets = diff_kosztowe(creds, SPREADSHEET_ID, name, drive_file_names)
-            st.session_state["kosztowe_status"] = {
+            _dialog_kosztowe_status({
                 "name": name,
                 "subfolder_found": bool(subfolder),
                 "drive_file_names": drive_file_names,
                 "sheet_counts": sheet_counts,
                 "only_drive": only_drive,
                 "only_sheets": only_sheets,
-            }
+            })
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
-
-if st.session_state.get("kosztowe_status"):
-    _ks = st.session_state["kosztowe_status"]
-    st.subheader(f"Faktury kosztowe — {_ks['name']}")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.markdown("**Google Drive**")
-        with st.container(border=True):
-            if not _ks["subfolder_found"]:
-                st.warning("Nie znaleziono folderu na Drive.")
-            else:
-                st.metric("Pliki PDF", len(_ks["drive_file_names"]))
-    with col_b:
-        st.markdown("**Google Sheets (sekcja kosztowa)**")
-        with st.container(border=True):
-            if _ks["sheet_counts"] is None:
-                st.warning("Brak arkusza o tej nazwie.")
-            else:
-                st.metric("Wierszy lacznie", sum(_ks["sheet_counts"].values()))
-                st.markdown(
-                    f"- Niezweryfikowane (0): **{_ks['sheet_counts']['0']}**  \n"
-                    f"- Zweryfikowane (1): **{_ks['sheet_counts']['1']}**  \n"
-                    f"- Inne: **{_ks['sheet_counts']['inne']}**"
-                )
-
-    only_drive  = _ks["only_drive"]
-    only_sheets = _ks["only_sheets"]
-    if only_drive is not None and only_sheets is not None:
-        if only_drive or only_sheets:
-            st.markdown("---")
-            st.markdown("**Roznice:**")
-            diff_col_a, diff_col_b = st.columns(2)
-            with diff_col_a:
-                st.markdown(f"**Na Drive, brak w Sheets ({len(only_drive)})**")
-                if only_drive:
-                    for fname in only_drive:
-                        st.markdown(f"- {fname}")
-                else:
-                    st.markdown("*(brak)*")
-            with diff_col_b:
-                st.markdown(f"**W Sheets, brak na Drive ({len(only_sheets)})**")
-                if only_sheets:
-                    for fname in only_sheets:
-                        st.markdown(f"- {fname}")
-                else:
-                    st.markdown("*(brak)*")
-        else:
-            st.success("Drive i Sheets sa zgodne — brak roznic.")
 
 # ----------------------------------------------------------------
 # AKCJA: Zaczytaj faktury kosztowe
@@ -4769,54 +4798,11 @@ if btn_sprawdz_sprzedaz:
             with st.spinner("Sprawdzam..."):
                 data = check_sprzedaz_status(drive_service, creds, SPREADSHEET_ID, name)
             if data is None:
-                st.session_state["sprzedaz_status"] = {"name": name, "error": True}
+                st.error(f"Brak arkusza '{name}'.")
             else:
-                st.session_state["sprzedaz_status"] = {"name": name, "data": data, "error": False}
+                _dialog_sprzedaz_status({"name": name, "data": data})
         except Exception as e:
             st.error(f"Wystapil blad: {e}")
-
-if st.session_state.get("sprzedaz_status"):
-    _ss = st.session_state["sprzedaz_status"]
-    _ss_name = _ss["name"]
-    if _ss["error"]:
-        st.error(f"Brak arkusza '{_ss_name}'.")
-    else:
-        data = _ss["data"]
-        st.subheader(f"Faktury sprzedazy — {_ss_name}")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown("**Google Drive (plik zbiorczy)**")
-            with st.container(border=True):
-                if data["drive_filename"]:
-                    st.markdown(f"`{data['drive_filename']}`")
-                    st.metric("Sztuk (z nazwy pliku)",
-                              data["drive_szt"] if data["drive_szt"] is not None else "?")
-                    st.metric("Kwota zł (z nazwy pliku)",
-                              data["drive_kwota"] if data["drive_kwota"] is not None else "?")
-                else:
-                    st.warning("Brak pliku Fs_najemcy_* na Drive.")
-        with col_b:
-            st.markdown("**Google Sheets (sekcja sprzedazy)**")
-            with st.container(border=True):
-                st.metric("Wierszy z kwotą > 0", data["sheet_szt"])
-                st.metric("Suma kolumny B (zł)", f"{data['sheet_kwota']:,.0f}".replace(",", " "))
-
-        if data["drive_filename"] and data["drive_szt"] is not None:
-            szt_ok   = data["drive_szt"]  == data["sheet_szt"]
-            kwota_ok = data["drive_kwota"] == int(round(data["sheet_kwota"]))
-            if szt_ok and kwota_ok:
-                st.success("Drive i Sheets sa zgodne — sztuki i kwota sie zgadzaja.")
-            else:
-                if not szt_ok:
-                    st.warning(
-                        f"Roznica sztuk: Drive={data['drive_szt']}, "
-                        f"Sheets={data['sheet_szt']}"
-                    )
-                if not kwota_ok:
-                    st.warning(
-                        f"Roznica kwoty: Drive={data['drive_kwota']} zl, "
-                        f"Sheets={int(round(data['sheet_kwota']))} zl"
-                    )
 
 # ----------------------------------------------------------------
 # AKCJA: Wyswietl ex
