@@ -3595,7 +3595,27 @@ with st.expander("Szukanie Google Sheets", expanded=False):
             f"**Wyniki: {_sh_qlabel}{_tag_str} — {len(_sh_filtered)} z {len(_sh_all_rows)} wierszy**"
         )
         if _sh_filtered:
-            st.dataframe(pd.DataFrame(_sh_filtered), use_container_width=True, hide_index=True)
+            _sh_df = pd.DataFrame(_sh_filtered)
+            _sh_sum_b = sum(_parse_amount(r.get("Kwota brutto", "")) or 0.0 for r in _sh_filtered)
+            _sh_sum_f = sum(_parse_amount(r.get("wyciag_Kwota", "")) or 0.0 for r in _sh_filtered)
+            _sh_cnt_a = sum(1 for r in _sh_filtered if str(r.get("Nazwa / Plik", "")).strip())
+            _sh_cnt_s = sum(1 for r in _sh_filtered if str(r.get("Status", "")).strip())
+            _sh_sum_row = {c: "" for c in _sh_df.columns}
+            _sh_sum_row["Nazwa / Plik"]  = f"Ilość A: {_sh_cnt_a}"
+            _sh_sum_row["Kwota brutto"]  = f"{_sh_sum_b:,.2f}".replace(",", " ")
+            _sh_sum_row["Status"]        = f"Ilość: {_sh_cnt_s}"
+            _sh_sum_row["wyciag_Kwota"]  = f"{_sh_sum_f:,.2f}".replace(",", " ")
+            _sh_df_sum = pd.concat([_sh_df, pd.DataFrame([_sh_sum_row])], ignore_index=True)
+            _sh_last = len(_sh_df_sum) - 1
+            def _sh_highlight(row):
+                if row.name == _sh_last:
+                    return ["background-color:#FFF3CD;font-weight:bold"] * len(row)
+                return [""] * len(row)
+            st.dataframe(
+                _sh_df_sum.style.apply(_sh_highlight, axis=1),
+                use_container_width=True,
+                hide_index=True,
+            )
         else:
             st.info("Brak wyników dla wybranych tagów.")
 
