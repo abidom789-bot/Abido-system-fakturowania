@@ -124,12 +124,12 @@ def find_subfolder(service, parent_folder_id, subfolder_name):
     return folders[0] if folders else None
 
 
-def list_pdfs_from_drive(service, folder_id):
-    query = (
-        f"'{folder_id}' in parents "
-        "and mimeType='application/pdf' "
-        "and trashed=false"
-    )
+def list_pdfs_from_drive(service, folder_id, include_images=False):
+    if include_images:
+        mime_filter = "(mimeType='application/pdf' or mimeType='image/jpeg' or mimeType='image/jpg')"
+    else:
+        mime_filter = "mimeType='application/pdf'"
+    query = f"'{folder_id}' in parents and {mime_filter} and trashed=false"
     results = service.files().list(
         q=query, fields="files(id, name)", orderBy="name"
     ).execute()
@@ -4479,10 +4479,10 @@ if btn_sprawdz:
             with st.spinner("Sprawdzam..."):
                 subfolder    = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, f"{name} {FAKTURY_KOSZTOWE_SUFFIX}")
                 if subfolder:
-                    drive_files = list_pdfs_from_drive(drive_service, subfolder["id"])
+                    drive_files = list_pdfs_from_drive(drive_service, subfolder["id"], include_images=True)
                     ksef_sub = find_subfolder(drive_service, subfolder["id"], f"ksef{name}")
                     if ksef_sub:
-                        drive_files += list_pdfs_from_drive(drive_service, ksef_sub["id"])
+                        drive_files += list_pdfs_from_drive(drive_service, ksef_sub["id"], include_images=True)
                     drive_file_names = [f["name"] for f in drive_files]
                 else:
                     drive_file_names = []
