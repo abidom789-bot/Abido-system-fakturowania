@@ -3754,6 +3754,7 @@ with st.expander("Bilans najemcy", expanded=False):
             _depo_out  = [r for r in _nj["rows"]
                           if "depo" in r["Klucz_Ksiegowy"].lower()
                           and ("_out" in r["Klucz_Ksiegowy"].lower() or "_kw" in r["Klucz_Ksiegowy"].lower())]
+            _bilans_rows = [r for r in _nj["rows"] if "depo" not in r["Klucz_Ksiegowy"].lower()]
 
             def _sum_kwota_bil(rows):
                 total = 0.0
@@ -3764,18 +3765,18 @@ with st.expander("Bilans najemcy", expanded=False):
                     total += abs(v or 0.0)
                 return total
 
-            def _sum_wplat(rows):
-                """Suma rzeczywistych wpłat: wyciag_Kwota (bank) lub col B (gotówka rk_kp)."""
+            def _sum_bilans(rows):
+                """Bilans (ze znakiem): wyciag_Kwota (bank) lub col B. pr_out/rk_kw odejmuja."""
                 total = 0.0
                 for r in rows:
                     v = _parse_amount(r.get("wyciag_Kwota", ""))
-                    if not v:
+                    if v is None:
                         v = _parse_amount(r["Kwota brutto"])
-                    total += abs(v or 0.0)
+                    total += (v or 0.0)
                 return total
 
             prz_naleznosc = _sum_kwota_bil(_prz_rows)
-            prz_wyciag    = _sum_wplat(_prz_rows)
+            bilans_sum    = _sum_bilans(_bilans_rows)
             depo_in_sum   = _sum_kwota_bil(_depo_in)
             depo_out_sum  = _sum_kwota_bil(_depo_out)
             depo_saldo    = depo_in_sum - depo_out_sum
@@ -3798,16 +3799,16 @@ with st.expander("Bilans najemcy", expanded=False):
                 st.metric("Pozycji prz", len(_prz_rows))
                 st.metric("Suma", _fmt(prz_naleznosc))
             with b2:
-                st.markdown("**Wpłaty arkusz**")
-                st.metric("Pozycji", len(_prz_rows))
-                st.metric("Suma", _fmt(prz_wyciag))
-                _prz_bank = sum(abs(_parse_amount(r.get("wyciag_Kwota", "")) or 0.0) for r in _prz_rows)
-                _prz_rk   = sum(
-                    abs(_parse_amount(r["Kwota brutto"]) or 0.0)
-                    for r in _prz_rows
+                st.markdown("**Bilans arkusz bez depo**")
+                st.metric("Pozycji", len(_bilans_rows))
+                st.metric("Bilans", _fmt(bilans_sum))
+                _bil_bank = sum((_parse_amount(r.get("wyciag_Kwota", "")) or 0.0) for r in _bilans_rows)
+                _bil_rk   = sum(
+                    (_parse_amount(r["Kwota brutto"]) or 0.0)
+                    for r in _bilans_rows
                     if not _parse_amount(r.get("wyciag_Kwota", ""))
                 )
-                st.caption(f"wyciąg: {_fmt(_prz_bank)}  |  RK: {_fmt(_prz_rk)}")
+                st.caption(f"wyciąg: {_fmt(_bil_bank)}  |  RK: {_fmt(_bil_rk)}")
             with b3:
                 st.markdown("**Faktury PDF**")
                 st.metric("Szt.", len(_nj["pdfs"]))
