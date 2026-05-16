@@ -8,7 +8,7 @@ import unicodedata
 from collections import Counter
 import xlrd
 import streamlit as st
-import streamlit_authenticator as stauth
+import hashlib
 import gspread
 import pdfplumber
 from datetime import date, datetime
@@ -3430,37 +3430,34 @@ st.set_page_config(
 # ================================================================
 # AUTENTYKACJA
 # ================================================================
-_role = "admin"          # domyslnie pelny dostep (gdy brak konfiguracji [auth])
-_authenticator = None
-_auth_user_name = None
+_role = "admin"   # domyslnie pelny dostep (gdy brak konfiguracji [auth] w secrets)
+_AUTH_KEY = "abido_auth_user"
 
 if "auth" in st.secrets:
-    try:
-        _s = st.secrets["auth"]
-        _creds = {"usernames": {}}
-        for _uname, _udata in _s["credentials"]["usernames"].items():
-            _creds["usernames"][_uname] = {
-                "name":     str(_udata["name"]),
-                "password": str(_udata["password"]),
-            }
-        _authenticator = stauth.Authenticate(
-            _creds,
-            str(_s["cookie_name"]),
-            str(_s["cookie_key"]),
-            int(_s["cookie_expiry_days"]),
-        )
-        _auth_user_name, _auth_status, _auth_username = _authenticator.login(
-            "Logowanie \u2014 System Fakturowania", "main"
-        )
-        if _auth_status is False:
-            st.error("\u274c Nieprawid\u0142owy login lub has\u0142o.")
-            st.stop()
-        if _auth_status is None:
-            st.stop()
-        _role = "admin" if _auth_username == "admin" else "ksiegowa"
-    except Exception as _auth_err:
-        st.error(f"B\u0142\u0105d konfiguracji auth: {_auth_err}")
+    if _AUTH_KEY not in st.session_state:
+        st.session_state[_AUTH_KEY] = None
+
+    if st.session_state[_AUTH_KEY] is None:
+        st.title("System Fakturowania \u2014 Logowanie")
+        with st.form("login_form"):
+            _lu = st.text_input("Login")
+            _lp = st.text_input("Has\u0142o", type="password")
+            _lb = st.form_submit_button("Zaloguj", use_container_width=True)
+        if _lb:
+            _ph = hashlib.sha256(_lp.encode()).hexdigest()
+            _ah = st.secrets["auth"].get("admin_hash", "")
+            _kh = st.secrets["auth"].get("ksiegowa_hash", "")
+            if _lu == "admin" and _ph == str(_ah):
+                st.session_state[_AUTH_KEY] = "admin"
+                st.rerun()
+            elif _lu == "ksiegowa" and _ph == str(_kh):
+                st.session_state[_AUTH_KEY] = "ksiegowa"
+                st.rerun()
+            else:
+                st.error("\u274c Nieprawid\u0142owy login lub has\u0142o.")
         st.stop()
+
+    _role = st.session_state[_AUTH_KEY]
 
 st.markdown("""
 <style>
@@ -3504,9 +3501,12 @@ _title_col, _user_col = st.columns([7, 1])
 with _title_col:
     st.title("System Fakturowania")
 with _user_col:
-    if _authenticator and _auth_user_name:
-        st.markdown(f"<div style='text-align:right;padding-top:18px'>👤 <b>{_auth_user_name}</b></div>", unsafe_allow_html=True)
-        _authenticator.logout("Wyloguj", "main")
+    if "auth" in st.secrets and st.session_state.get(_AUTH_KEY):
+        _label = "Admin" if _role == "admin" else "Ksi\u0119gowa"
+        st.markdown(f"<div style='text-align:right;padding-top:6px'>\U0001f464 <b>{_label}</b></div>", unsafe_allow_html=True)
+        if st.button("Wyloguj", use_container_width=True):
+            st.session_state[_AUTH_KEY] = None
+            st.rerun()
 
 # ── Szukanie Google Drive ────────────────────────────────────────────
 with st.expander("Szukanie Google Drive", expanded=False):

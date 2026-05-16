@@ -8,4 +8,3 @@ xlrd
 reportlab
 pypdf
 num2words
-streamlit-authenticator==0.3.3
