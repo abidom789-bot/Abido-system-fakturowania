@@ -8,6 +8,7 @@ import unicodedata
 from collections import Counter
 import xlrd
 import streamlit as st
+import streamlit_authenticator as stauth
 import gspread
 import pdfplumber
 from datetime import date, datetime
@@ -3426,6 +3427,41 @@ st.set_page_config(
     layout="wide",
 )
 
+# ================================================================
+# AUTENTYKACJA
+# ================================================================
+_role = "admin"          # domyslnie pelny dostep (gdy brak konfiguracji [auth])
+_authenticator = None
+_auth_user_name = None
+
+if "auth" in st.secrets:
+    try:
+        _s = st.secrets["auth"]
+        _creds = {"usernames": {}}
+        for _uname, _udata in _s["credentials"]["usernames"].items():
+            _creds["usernames"][_uname] = {
+                "name":     str(_udata["name"]),
+                "password": str(_udata["password"]),
+            }
+        _authenticator = stauth.Authenticate(
+            _creds,
+            str(_s["cookie_name"]),
+            str(_s["cookie_key"]),
+            int(_s["cookie_expiry_days"]),
+        )
+        _auth_user_name, _auth_status, _auth_username = _authenticator.login(
+            "Logowanie \u2014 System Fakturowania", "main"
+        )
+        if _auth_status is False:
+            st.error("\u274c Nieprawid\u0142owy login lub has\u0142o.")
+            st.stop()
+        if _auth_status is None:
+            st.stop()
+        _role = "admin" if _auth_username == "admin" else "ksiegowa"
+    except Exception as _auth_err:
+        st.error(f"B\u0142\u0105d konfiguracji auth: {_auth_err}")
+        st.stop()
+
 st.markdown("""
 <style>
 /* Czerwona ramka dla wewnetrznego kontenera w 3. kolumnie segmentu miesiac */
@@ -3464,7 +3500,13 @@ div[data-testid="stColumn"]:has(.abido-nj-search-done) button {
 </style>
 """, unsafe_allow_html=True)
 
-st.title("System Fakturowania")
+_title_col, _user_col = st.columns([7, 1])
+with _title_col:
+    st.title("System Fakturowania")
+with _user_col:
+    if _authenticator and _auth_user_name:
+        st.markdown(f"<div style='text-align:right;padding-top:18px'>👤 <b>{_auth_user_name}</b></div>", unsafe_allow_html=True)
+        _authenticator.logout("Wyloguj", "main")
 
 # ── Szukanie Google Drive ────────────────────────────────────────────
 with st.expander("Szukanie Google Drive", expanded=False):
@@ -3851,241 +3893,249 @@ with st.expander("Bilans najemcy", expanded=False):
                     st.caption("—")
 
 # ── Segment: miesiac + akcje ────────────────────────────────────────
-with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
-    st.markdown('<span class="abido-month-bg"></span>', unsafe_allow_html=True)
+# ── Domyslne wartosci przyciskow admina (ksiegowa ich nie widzi) ──
+subfolder_name = ""
+btn_wyswietl = btn_szablon = btn_czytaj = btn_sprawdz = btn_ksef = False
+btn_sprzedaz = btn_generuj_pdf = btn_sprawdz_sprzedaz = btn_paruj = False
+btn_status_parowania = btn_refresh_kpkw = btn_show_kpkw = False
+btn_sortuj_inne_rk = btn_usun_puste = btn_podsumowanie = False
 
-    # Pole miesiaca + Wyswietl ex
-    _, input_col, btn_ex_col, _ = st.columns([1, 1.6, 0.4, 1])
-    with input_col:
-        subfolder_name = st.text_input(
-            "Miesiac (np. 032026)",
-            placeholder="wpisz nazwe podfolderu miesiacowego...",
-        )
-    with btn_ex_col:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        btn_wyswietl = st.button("Wyswietl ex", use_container_width=True)
-
-    # Trzy kolumny akcji
-    left_col, mid_col, right_col = st.columns(3)
-
-    @st.dialog("Podgląd KP / KW", width="large")
-    def _dialog_podglad_kp_kw(html):
-        st.markdown(html, unsafe_allow_html=True)
-
-    @st.dialog("Stan faktur kosztowych", width="large")
-    def _dialog_kosztowe_status(ks):
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown("**Google Drive**")
-            with st.container(border=True):
-                if not ks["subfolder_found"]:
-                    st.warning("Nie znaleziono folderu na Drive.")
+if _role == "admin":
+    with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
+        st.markdown('<span class="abido-month-bg"></span>', unsafe_allow_html=True)
+    
+        # Pole miesiaca + Wyswietl ex
+        _, input_col, btn_ex_col, _ = st.columns([1, 1.6, 0.4, 1])
+        with input_col:
+            subfolder_name = st.text_input(
+                "Miesiac (np. 032026)",
+                placeholder="wpisz nazwe podfolderu miesiacowego...",
+            )
+        with btn_ex_col:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            btn_wyswietl = st.button("Wyswietl ex", use_container_width=True)
+    
+        # Trzy kolumny akcji
+        left_col, mid_col, right_col = st.columns(3)
+    
+        @st.dialog("Podgląd KP / KW", width="large")
+        def _dialog_podglad_kp_kw(html):
+            st.markdown(html, unsafe_allow_html=True)
+    
+        @st.dialog("Stan faktur kosztowych", width="large")
+        def _dialog_kosztowe_status(ks):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown("**Google Drive**")
+                with st.container(border=True):
+                    if not ks["subfolder_found"]:
+                        st.warning("Nie znaleziono folderu na Drive.")
+                    else:
+                        st.metric("Pliki PDF", len(ks["drive_file_names"]))
+            with col_b:
+                st.markdown("**Google Sheets (sekcja kosztowa)**")
+                with st.container(border=True):
+                    if ks["sheet_counts"] is None:
+                        st.warning("Brak arkusza o tej nazwie.")
+                    else:
+                        st.metric("Wierszy lacznie", sum(ks["sheet_counts"].values()))
+                        st.markdown(
+                            f"- Niezweryfikowane (0): **{ks['sheet_counts']['0']}**  \n"
+                            f"- Zweryfikowane (1): **{ks['sheet_counts']['1']}**  \n"
+                            f"- Inne: **{ks['sheet_counts']['inne']}**"
+                        )
+            only_drive  = ks["only_drive"]
+            only_sheets = ks["only_sheets"]
+            if only_drive is not None and only_sheets is not None:
+                if only_drive or only_sheets:
+                    st.markdown("---")
+                    st.markdown("**Roznice:**")
+                    d_col_a, d_col_b = st.columns(2)
+                    with d_col_a:
+                        st.markdown(f"**Na Drive, brak w Sheets ({len(only_drive)})**")
+                        for fname in (only_drive or ["*(brak)*"]):
+                            st.markdown(f"- {fname}")
+                    with d_col_b:
+                        st.markdown(f"**W Sheets, brak na Drive ({len(only_sheets)})**")
+                        for fname in (only_sheets or ["*(brak)*"]):
+                            st.markdown(f"- {fname}")
                 else:
-                    st.metric("Pliki PDF", len(ks["drive_file_names"]))
-        with col_b:
-            st.markdown("**Google Sheets (sekcja kosztowa)**")
-            with st.container(border=True):
-                if ks["sheet_counts"] is None:
-                    st.warning("Brak arkusza o tej nazwie.")
+                    st.success("Drive i Sheets sa zgodne — brak roznic.")
+    
+        @st.dialog("Stan faktur sprzedazy", width="large")
+        def _dialog_sprzedaz_status(ss):
+            data = ss["data"]
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown("**Google Drive (plik zbiorczy)**")
+                with st.container(border=True):
+                    if data["drive_filename"]:
+                        st.markdown(f"`{data['drive_filename']}`")
+                        st.metric("Sztuk (z nazwy pliku)",
+                                  data["drive_szt"] if data["drive_szt"] is not None else "?")
+                        st.metric("Kwota zł (z nazwy pliku)",
+                                  data["drive_kwota"] if data["drive_kwota"] is not None else "?")
+                    else:
+                        st.warning("Brak pliku Fs_najemcy_* na Drive.")
+            with col_b:
+                st.markdown("**Google Sheets (sekcja sprzedazy)**")
+                with st.container(border=True):
+                    st.metric("Wierszy z kwotą > 0", data["sheet_szt"])
+                    st.metric("Suma kolumny B (zł)", f"{data['sheet_kwota']:,.0f}".replace(",", " "))
+            if data["drive_filename"] and data["drive_szt"] is not None:
+                szt_ok   = data["drive_szt"]  == data["sheet_szt"]
+                kwota_ok = data["drive_kwota"] == int(round(data["sheet_kwota"]))
+                if szt_ok and kwota_ok:
+                    st.success("Drive i Sheets sa zgodne — sztuki i kwota sie zgadzaja.")
                 else:
-                    st.metric("Wierszy lacznie", sum(ks["sheet_counts"].values()))
-                    st.markdown(
-                        f"- Niezweryfikowane (0): **{ks['sheet_counts']['0']}**  \n"
-                        f"- Zweryfikowane (1): **{ks['sheet_counts']['1']}**  \n"
-                        f"- Inne: **{ks['sheet_counts']['inne']}**"
-                    )
-        only_drive  = ks["only_drive"]
-        only_sheets = ks["only_sheets"]
-        if only_drive is not None and only_sheets is not None:
-            if only_drive or only_sheets:
-                st.markdown("---")
-                st.markdown("**Roznice:**")
-                d_col_a, d_col_b = st.columns(2)
-                with d_col_a:
-                    st.markdown(f"**Na Drive, brak w Sheets ({len(only_drive)})**")
-                    for fname in (only_drive or ["*(brak)*"]):
-                        st.markdown(f"- {fname}")
-                with d_col_b:
-                    st.markdown(f"**W Sheets, brak na Drive ({len(only_sheets)})**")
-                    for fname in (only_sheets or ["*(brak)*"]):
-                        st.markdown(f"- {fname}")
-            else:
-                st.success("Drive i Sheets sa zgodne — brak roznic.")
-
-    @st.dialog("Stan faktur sprzedazy", width="large")
-    def _dialog_sprzedaz_status(ss):
-        data = ss["data"]
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown("**Google Drive (plik zbiorczy)**")
+                    if not szt_ok:
+                        st.warning(
+                            f"Roznica sztuk: Drive={data['drive_szt']}, "
+                            f"Sheets={data['sheet_szt']}"
+                        )
+                    if not kwota_ok:
+                        st.warning(
+                            f"Roznica kwoty: Drive={data['drive_kwota']} zl, "
+                            f"Sheets={int(round(data['sheet_kwota']))} zl"
+                        )
+    
+        @st.dialog("Wynik parowania", width="large")
+        def _dialog_wynik_parowania(data):
+            sparowane   = data["sparowane"]
+            niesparowane = data["niesparowane"]
+            fioletowe   = data["fioletowe"]
+            pomaranczowe = data["pomaranczowe"]
+            subfolder_name_d = data.get("subfolder_name", "")
+            tx_total    = data["tx_total"]
+            tx_sum      = data["tx_sum"]
+            sheet_tx_count = data["sheet_tx_count"]
+            sheet_tx_sum   = data["sheet_tx_sum"]
+            diff_info   = data["diff_info"]
+    
+            parts = [f"**Sparowano: {sparowane}**"]
+            if fioletowe:
+                parts.append(f"🟣 Fioletowe (niezgodna kwota): {fioletowe}")
+            if pomaranczowe:
+                parts.append(f"🟠 Pomarańczowe (brak pary): {pomaranczowe}")
+            parts.append(f"Niesparowane z wyciągu: {niesparowane}")
+            st.success(" | ".join(parts))
+    
+            ok_count = (tx_total == sheet_tx_count)
+            ok_sum   = (abs(tx_sum - sheet_tx_sum) < 0.02)
+            count_icon = "✅" if ok_count else "⚠️"
+            sum_icon   = "✅" if ok_sum   else "⚠️"
+            st.info(
+                f"{count_icon} Pozycje: Plik {tx_total} / Arkusz {sheet_tx_count}"
+                f"{'  ✓' if ok_count else f'  ← RÓŻNICA: {sheet_tx_count - tx_total:+d}'}"
+                f"   |   "
+                f"{sum_icon} Kwoty: Plik {tx_sum:,.2f} PLN / Arkusz {sheet_tx_sum:,.2f} PLN"
+                f"{'  ✓' if ok_sum else f'  ← RÓŻNICA: {sheet_tx_sum - tx_sum:+.2f} PLN'}"
+            )
+    
+            missing = diff_info.get("missing", [])
+            extra   = diff_info.get("extra", [])
+            reconciled = diff_info.get("reconciled", False)
+            label = "Naprawiono automatycznie" if reconciled else "Wykryto"
+            if missing:
+                st.info(f"ℹ️ **{label} — brakujące** ({len(missing)} poz.) dodane do NIEZNANE:")
+                st.dataframe(
+                    [{"Kwota": tx["kwota"], "Data KS": tx["data_ks"],
+                      "Kontrahent": tx["kontrahent"].split("|")[0],
+                      "Nr rachunku": tx["nr_rachunku"], "Tytuł": tx["tytul"][:60]}
+                     for tx in missing],
+                    use_container_width=True,
+                )
+            if extra:
+                st.info(f"ℹ️ **{label} — nadmiarowe** ({len(extra)} poz.) usunięte z arkusza:")
+                rows_e = []
+                for r in extra:
+                    try:
+                        kwota_e = float(re.sub(r"[^\d,.\-]", "", str(r[5])).replace(",", ".")) if len(r) > 5 else 0.0
+                    except (ValueError, TypeError):
+                        kwota_e = 0.0
+                    rows_e.append({"Kwota": kwota_e, "Data KS": r[6] if len(r) > 6 else "",
+                                   "Kontrahent": r[4] if len(r) > 4 else "",
+                                   "Nr rachunku": r[11] if len(r) > 11 else "",
+                                   "Tytuł": str(r[7])[:60] if len(r) > 7 else ""})
+                st.dataframe(rows_e, use_container_width=True)
+            if not ok_count or not ok_sum:
+                st.warning("Nadal są różnice po reconcile — sprawdź arkusz ręcznie.")
+    
+        with left_col:
             with st.container(border=True):
-                if data["drive_filename"]:
-                    st.markdown(f"`{data['drive_filename']}`")
-                    st.metric("Sztuk (z nazwy pliku)",
-                              data["drive_szt"] if data["drive_szt"] is not None else "?")
-                    st.metric("Kwota zł (z nazwy pliku)",
-                              data["drive_kwota"] if data["drive_kwota"] is not None else "?")
-                else:
-                    st.warning("Brak pliku Fs_najemcy_* na Drive.")
-        with col_b:
-            st.markdown("**Google Sheets (sekcja sprzedazy)**")
+                st.markdown("#### Szablon miesiaca")
+                btn_szablon = st.button(
+                    "Utwórz szablon miesiaca",
+                    use_container_width=True,
+                    type="primary",
+                )
+    
             with st.container(border=True):
-                st.metric("Wierszy z kwotą > 0", data["sheet_szt"])
-                st.metric("Suma kolumny B (zł)", f"{data['sheet_kwota']:,.0f}".replace(",", " "))
-        if data["drive_filename"] and data["drive_szt"] is not None:
-            szt_ok   = data["drive_szt"]  == data["sheet_szt"]
-            kwota_ok = data["drive_kwota"] == int(round(data["sheet_kwota"]))
-            if szt_ok and kwota_ok:
-                st.success("Drive i Sheets sa zgodne — sztuki i kwota sie zgadzaja.")
-            else:
-                if not szt_ok:
-                    st.warning(
-                        f"Roznica sztuk: Drive={data['drive_szt']}, "
-                        f"Sheets={data['sheet_szt']}"
-                    )
-                if not kwota_ok:
-                    st.warning(
-                        f"Roznica kwoty: Drive={data['drive_kwota']} zl, "
-                        f"Sheets={int(round(data['sheet_kwota']))} zl"
-                    )
-
-    @st.dialog("Wynik parowania", width="large")
-    def _dialog_wynik_parowania(data):
-        sparowane   = data["sparowane"]
-        niesparowane = data["niesparowane"]
-        fioletowe   = data["fioletowe"]
-        pomaranczowe = data["pomaranczowe"]
-        subfolder_name_d = data.get("subfolder_name", "")
-        tx_total    = data["tx_total"]
-        tx_sum      = data["tx_sum"]
-        sheet_tx_count = data["sheet_tx_count"]
-        sheet_tx_sum   = data["sheet_tx_sum"]
-        diff_info   = data["diff_info"]
-
-        parts = [f"**Sparowano: {sparowane}**"]
-        if fioletowe:
-            parts.append(f"🟣 Fioletowe (niezgodna kwota): {fioletowe}")
-        if pomaranczowe:
-            parts.append(f"🟠 Pomarańczowe (brak pary): {pomaranczowe}")
-        parts.append(f"Niesparowane z wyciągu: {niesparowane}")
-        st.success(" | ".join(parts))
-
-        ok_count = (tx_total == sheet_tx_count)
-        ok_sum   = (abs(tx_sum - sheet_tx_sum) < 0.02)
-        count_icon = "✅" if ok_count else "⚠️"
-        sum_icon   = "✅" if ok_sum   else "⚠️"
-        st.info(
-            f"{count_icon} Pozycje: Plik {tx_total} / Arkusz {sheet_tx_count}"
-            f"{'  ✓' if ok_count else f'  ← RÓŻNICA: {sheet_tx_count - tx_total:+d}'}"
-            f"   |   "
-            f"{sum_icon} Kwoty: Plik {tx_sum:,.2f} PLN / Arkusz {sheet_tx_sum:,.2f} PLN"
-            f"{'  ✓' if ok_sum else f'  ← RÓŻNICA: {sheet_tx_sum - tx_sum:+.2f} PLN'}"
-        )
-
-        missing = diff_info.get("missing", [])
-        extra   = diff_info.get("extra", [])
-        reconciled = diff_info.get("reconciled", False)
-        label = "Naprawiono automatycznie" if reconciled else "Wykryto"
-        if missing:
-            st.info(f"ℹ️ **{label} — brakujące** ({len(missing)} poz.) dodane do NIEZNANE:")
-            st.dataframe(
-                [{"Kwota": tx["kwota"], "Data KS": tx["data_ks"],
-                  "Kontrahent": tx["kontrahent"].split("|")[0],
-                  "Nr rachunku": tx["nr_rachunku"], "Tytuł": tx["tytul"][:60]}
-                 for tx in missing],
-                use_container_width=True,
-            )
-        if extra:
-            st.info(f"ℹ️ **{label} — nadmiarowe** ({len(extra)} poz.) usunięte z arkusza:")
-            rows_e = []
-            for r in extra:
-                try:
-                    kwota_e = float(re.sub(r"[^\d,.\-]", "", str(r[5])).replace(",", ".")) if len(r) > 5 else 0.0
-                except (ValueError, TypeError):
-                    kwota_e = 0.0
-                rows_e.append({"Kwota": kwota_e, "Data KS": r[6] if len(r) > 6 else "",
-                               "Kontrahent": r[4] if len(r) > 4 else "",
-                               "Nr rachunku": r[11] if len(r) > 11 else "",
-                               "Tytuł": str(r[7])[:60] if len(r) > 7 else ""})
-            st.dataframe(rows_e, use_container_width=True)
-        if not ok_count or not ok_sum:
-            st.warning("Nadal są różnice po reconcile — sprawdź arkusz ręcznie.")
-
-    with left_col:
-        with st.container(border=True):
-            st.markdown("#### Szablon miesiaca")
-            btn_szablon = st.button(
-                "Utwórz szablon miesiaca",
-                use_container_width=True,
-                type="primary",
-            )
-
-        with st.container(border=True):
-            st.markdown("#### Faktury kosztowe")
-            btn_czytaj = st.button(
-                "Zaczytaj faktury kosztowe",
-                use_container_width=True,
-                type="primary",
-            )
-            btn_sprawdz = st.button(
-                "Sprawdz stan faktur kosztowych",
-                use_container_width=True,
-            )
-            btn_ksef = st.button(
-                "Zmień nazwy plików KSeF",
-                use_container_width=True,
-            )
-
-    with mid_col:
-        with st.container(border=True):
-            st.markdown("#### Faktury sprzedazy")
-            btn_sprzedaz = st.button(
-                "Tworz wstepne wiersze faktur sprzedazy",
-                use_container_width=True,
-                type="primary",
-            )
-            btn_generuj_pdf = st.button(
-                "Generuj faktury sprzedazy PDF",
-                use_container_width=True,
-            )
-            btn_sprawdz_sprzedaz = st.button(
-                "Sprawdz stan faktur sprzedazy",
-                use_container_width=True,
-            )
-
-    with right_col:
-        with st.container(border=True):
-            st.markdown("#### Parowanie")
-            btn_paruj = st.button(
-                "Paruj wyciag bankowy z arkuszem",
-                use_container_width=True,
-                type="primary",
-            )
-            btn_status_parowania = st.button(
-                "Status parowania",
-                use_container_width=True,
-            )
-            btn_refresh_kpkw = st.button(
-                "Odśwież KP / KW",
-                use_container_width=True,
-            )
-            btn_show_kpkw = st.button(
-                "Pokaż KP / KW",
-                use_container_width=True,
-            )
-            btn_sortuj_inne_rk = st.button(
-                "Sortuj Inne RK oraz Nieznane",
-                use_container_width=True,
-            )
-            btn_usun_puste = st.button(
-                "Usuń puste wiersze",
-                use_container_width=True,
-            )
-            btn_podsumowanie = st.button(
-                "Dodaj podsumowanie segmentów",
-                use_container_width=True,
-            )
-
+                st.markdown("#### Faktury kosztowe")
+                btn_czytaj = st.button(
+                    "Zaczytaj faktury kosztowe",
+                    use_container_width=True,
+                    type="primary",
+                )
+                btn_sprawdz = st.button(
+                    "Sprawdz stan faktur kosztowych",
+                    use_container_width=True,
+                )
+                btn_ksef = st.button(
+                    "Zmień nazwy plików KSeF",
+                    use_container_width=True,
+                )
+    
+        with mid_col:
+            with st.container(border=True):
+                st.markdown("#### Faktury sprzedazy")
+                btn_sprzedaz = st.button(
+                    "Tworz wstepne wiersze faktur sprzedazy",
+                    use_container_width=True,
+                    type="primary",
+                )
+                btn_generuj_pdf = st.button(
+                    "Generuj faktury sprzedazy PDF",
+                    use_container_width=True,
+                )
+                btn_sprawdz_sprzedaz = st.button(
+                    "Sprawdz stan faktur sprzedazy",
+                    use_container_width=True,
+                )
+    
+        with right_col:
+            with st.container(border=True):
+                st.markdown("#### Parowanie")
+                btn_paruj = st.button(
+                    "Paruj wyciag bankowy z arkuszem",
+                    use_container_width=True,
+                    type="primary",
+                )
+                btn_status_parowania = st.button(
+                    "Status parowania",
+                    use_container_width=True,
+                )
+                btn_refresh_kpkw = st.button(
+                    "Odśwież KP / KW",
+                    use_container_width=True,
+                )
+                btn_show_kpkw = st.button(
+                    "Pokaż KP / KW",
+                    use_container_width=True,
+                )
+                btn_sortuj_inne_rk = st.button(
+                    "Sortuj Inne RK oraz Nieznane",
+                    use_container_width=True,
+                )
+                btn_usun_puste = st.button(
+                    "Usuń puste wiersze",
+                    use_container_width=True,
+                )
+                btn_podsumowanie = st.button(
+                    "Dodaj podsumowanie segmentów",
+                    use_container_width=True,
+                )
+    
 # ----------------------------------------------------------------
 # AKCJA: Sortuj Inne RK
 # ----------------------------------------------------------------
