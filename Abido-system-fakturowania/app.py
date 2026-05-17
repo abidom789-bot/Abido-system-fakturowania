@@ -3820,6 +3820,13 @@ with st.expander("Bilans najemcy", expanded=False):
                           and ("_out" in r["Klucz_Ksiegowy"].lower() or "_kw" in r["Klucz_Ksiegowy"].lower())]
             _bilans_rows = [r for r in _nj["rows"] if "depo" not in r["Klucz_Ksiegowy"].lower()]
 
+            def _parse_signed(s):
+                """Parsuje kwotę zachowując znak (ujemne koszty zostają ujemne)."""
+                try:
+                    return float(re.sub(r"[^\d,.\-]", "", str(s)).replace(",", "."))
+                except (ValueError, TypeError):
+                    return None
+
             def _sum_kwota_bil(rows):
                 total = 0.0
                 for r in rows:
@@ -3830,12 +3837,12 @@ with st.expander("Bilans najemcy", expanded=False):
                 return total
 
             def _sum_bilans(rows):
-                """Bilans (ze znakiem): wyciag_Kwota (bank) lub col B. pr_out/rk_kw odejmuja."""
+                """Bilans (ze znakiem): wyciag_Kwota (bank) lub col B ze znakiem."""
                 total = 0.0
                 for r in rows:
-                    v = _parse_amount(r.get("wyciag_Kwota", ""))
-                    if v is None:
-                        v = _parse_amount(r["Kwota brutto"])
+                    v = _parse_signed(r.get("wyciag_Kwota", ""))
+                    if v is None or v == 0.0:
+                        v = _parse_signed(r["Kwota brutto"])
                     total += (v or 0.0)
                 return total
 
@@ -3866,11 +3873,11 @@ with st.expander("Bilans najemcy", expanded=False):
                 st.markdown("**Bilans arkusz bez depo**")
                 st.metric("Pozycji", len(_bilans_rows))
                 st.metric("Bilans", _fmt(bilans_sum))
-                _bil_bank = sum((_parse_amount(r.get("wyciag_Kwota", "")) or 0.0) for r in _bilans_rows)
+                _bil_bank = sum((_parse_signed(r.get("wyciag_Kwota", "")) or 0.0) for r in _bilans_rows)
                 _bil_rk   = sum(
-                    (_parse_amount(r["Kwota brutto"]) or 0.0)
+                    (_parse_signed(r["Kwota brutto"]) or 0.0)
                     for r in _bilans_rows
-                    if not _parse_amount(r.get("wyciag_Kwota", ""))
+                    if not (_parse_signed(r.get("wyciag_Kwota", "")) or 0.0)
                 )
                 st.caption(f"wyciąg: {_fmt(_bil_bank)}  |  RK: {_fmt(_bil_rk)}")
             with b3:
@@ -3886,9 +3893,9 @@ with st.expander("Bilans najemcy", expanded=False):
                 st.markdown("**Inne transakcje**")
                 if _inne_rows:
                     for r in _inne_rows:
-                        _kw = _parse_amount(r.get("wyciag_Kwota", "")) or _parse_amount(r["Kwota brutto"]) or 0.0
+                        _kw = _parse_signed(r.get("wyciag_Kwota", "")) or _parse_signed(r["Kwota brutto"]) or 0.0
                         _klucz = r["Klucz_Ksiegowy"] or "(brak klucza)"
-                        st.caption(f"{r['Zakladka']} | {_klucz} | {_fmt(abs(_kw))}")
+                        st.caption(f"{r['Zakladka']} | {_klucz} | {_fmt(_kw)}")
                 else:
                     st.caption("—")
 
