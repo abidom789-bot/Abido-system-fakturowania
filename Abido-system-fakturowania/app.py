@@ -3509,7 +3509,7 @@ with _user_col:
             st.rerun()
 
 # ── Szukanie Google Drive ────────────────────────────────────────────
-with st.expander("Szukanie Google Drive", expanded=False):
+with st.expander("Szukanie Google Drive", expanded=False, key="exp_szukanie_drive"):
     srch_input_col, srch_type_col, srch_btn_col = st.columns([5, 1.2, 0.5])
     with srch_input_col:
         search_query = st.text_input(
@@ -3529,7 +3529,7 @@ with st.expander("Szukanie Google Drive", expanded=False):
         btn_search = st.button("🔍 Szukaj", use_container_width=True)
 
 # ── Szukanie Google Sheets ───────────────────────────────────────────
-with st.expander("Szukanie Google Sheets", expanded=False):
+with st.expander("Szukanie Google Sheets", expanded=False, key="exp_szukanie_sheets"):
     sh_r1c1, sh_r1c2, sh_r1c3 = st.columns([4.5, 1.5, 0.8])
     with sh_r1c1:
         sh_query = st.text_input(
@@ -3666,7 +3666,7 @@ with st.expander("Szukanie Google Sheets", expanded=False):
 # ================================================================
 # BILANS NAJEMCY
 # ================================================================
-with st.expander("Bilans najemcy", expanded=False):
+with st.expander("Bilans najemcy", expanded=False, key="exp_bilans_najemcy"):
     st.markdown('<span class="abido-bilans-bg"></span>', unsafe_allow_html=True)
 
     nj_r1c1, nj_r1c2, nj_r1c3 = st.columns([2, 2, 1.5])
@@ -3763,7 +3763,7 @@ with st.expander("Bilans najemcy", expanded=False):
         )
 
         # Faktury PDF
-        with st.expander(f"Faktury PDF ({len(_nj['pdfs'])})", expanded=True):
+        with st.expander(f"Faktury PDF ({len(_nj['pdfs'])})", expanded=True, key="exp_nj_pdfs"):
             if _nj["pdfs"]:
                 for _p in _nj["pdfs"]:
                     _link  = _p.get("Link", "")
@@ -3799,6 +3799,7 @@ with st.expander("Bilans najemcy", expanded=False):
         with st.expander(
             f"Transakcje w arkuszu ({len(filtered_rows)} z {len(_nj['rows'])})",
             expanded=True,
+            key="exp_nj_transakcje",
         ):
             if filtered_rows:
                 st.dataframe(
@@ -3810,7 +3811,7 @@ with st.expander("Bilans najemcy", expanded=False):
                 st.caption("Brak transakcji dla wybranych filtrów.")
 
         # Bilans
-        with st.expander("Bilans", expanded=True):
+        with st.expander("Bilans", expanded=True, key="exp_nj_bilans"):
             _prz_rows  = [r for r in _nj["rows"] if r["Klucz_Ksiegowy"].lower().startswith("prz_")]
             _depo_in   = [r for r in _nj["rows"]
                           if "depo" in r["Klucz_Ksiegowy"].lower()
@@ -3908,7 +3909,7 @@ btn_status_parowania = btn_refresh_kpkw = btn_show_kpkw = False
 btn_sortuj_inne_rk = btn_usun_puste = btn_podsumowanie = False
 
 if _role == "admin":
-    with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True):
+    with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True, key="exp_miesiac"):
         st.markdown('<span class="abido-month-bg"></span>', unsafe_allow_html=True)
     
         # Pole miesiaca + Wyswietl ex
