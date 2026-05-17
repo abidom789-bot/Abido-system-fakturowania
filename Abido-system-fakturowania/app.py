@@ -1074,8 +1074,8 @@ def read_all_sections(worksheet):
         elif val or str(row[2]).strip() == "3":
             # Normalny wiersz — klucz w kol A, lub status=3 (beton) bez nazwy pliku
             sections[current].append(row)
-        elif len(row) > 4 and row[4]:
-            # Dodatkowy wiersz parowania: puste A i B, ale jest kontrahent w kol E
+        elif (len(row) > 4 and row[4]) or (len(row) > 5 and row[5]):
+            # Dodatkowy wiersz parowania: kontrahent w kol E LUB wyciag_Kwota w kol F
             sections[current].append(row)
     return sections
 
