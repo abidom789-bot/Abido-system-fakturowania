@@ -3660,6 +3660,14 @@ with st.expander("Szukanie Google Sheets", expanded=False, key="exp_szukanie_she
                 hide_index=True,
                 height=_sh_height,
             )
+            _sh_csv = _sh_df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
+            st.download_button(
+                "⬇ Pobierz CSV",
+                data=_sh_csv,
+                file_name=f"szukanie_{_sh_qlabel.replace(' ', '_')}.csv",
+                mime="text/csv",
+                key="btn_sh_csv",
+            )
         else:
             st.info("Brak wyników dla wybranych tagów.")
 
@@ -3802,10 +3810,15 @@ with st.expander("Bilans najemcy", expanded=False, key="exp_bilans_najemcy"):
             key="exp_nj_transakcje",
         ):
             if filtered_rows:
-                st.dataframe(
-                    pd.DataFrame(filtered_rows),
-                    use_container_width=True,
-                    hide_index=True,
+                _nj_df = pd.DataFrame(filtered_rows)
+                st.dataframe(_nj_df, use_container_width=True, hide_index=True)
+                _nj_csv = _nj_df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
+                st.download_button(
+                    "⬇ Pobierz CSV",
+                    data=_nj_csv,
+                    file_name=f"bilans_{_nj['imie']}_{_nj['nazwisko']}.csv",
+                    mime="text/csv",
+                    key="btn_nj_csv",
                 )
             else:
                 st.caption("Brak transakcji dla wybranych filtrów.")
@@ -3829,11 +3842,12 @@ with st.expander("Bilans najemcy", expanded=False, key="exp_bilans_najemcy"):
                     return None
 
             def _sum_kwota_bil(rows):
+                """Sumuje col B tylko z głównych wierszy (col A niepuste = faktura)."""
                 total = 0.0
                 for r in rows:
+                    if not str(r.get("Nazwa / Plik", "")).strip():
+                        continue  # sub-wiersz — pomiń
                     v = _parse_amount(r["Kwota brutto"])
-                    if not v:
-                        v = _parse_amount(r.get("wyciag_Kwota", ""))
                     total += abs(v or 0.0)
                 return total
 
@@ -3847,7 +3861,8 @@ with st.expander("Bilans najemcy", expanded=False, key="exp_bilans_najemcy"):
                     total += (v or 0.0)
                 return total
 
-            prz_naleznosc = _sum_kwota_bil(_prz_rows)
+            _prz_main     = [r for r in _prz_rows if str(r.get("Nazwa / Plik", "")).strip()]
+            prz_naleznosc = _sum_kwota_bil(_prz_main)
             bilans_sum    = _sum_bilans(_bilans_rows)
             depo_in_sum   = _sum_kwota_bil(_depo_in)
             depo_out_sum  = _sum_kwota_bil(_depo_out)
@@ -3868,7 +3883,7 @@ with st.expander("Bilans najemcy", expanded=False, key="exp_bilans_najemcy"):
             b1, b2, b3, b4, b5 = st.columns(5)
             with b1:
                 st.markdown("**Faktury arkusz**")
-                st.metric("Pozycji prz", len(_prz_rows))
+                st.metric("Pozycji prz", len(_prz_main))
                 st.metric("Suma", _fmt(prz_naleznosc))
             with b2:
                 st.markdown("**Bilans arkusz bez depo**")
