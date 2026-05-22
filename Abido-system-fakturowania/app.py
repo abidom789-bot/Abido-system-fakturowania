@@ -330,6 +330,64 @@ def unpack_ksef_zips(service, ksef_folder_id, upload_service):
     return results
 
 
+def upload_ksef_from_zip_bytes(zip_bytes, drive_sa, drive_oauth, folder_id):
+    """
+    Rozpakowuje ZIP z fakturami KSeF w pamieci, nadaje nazwy:
+      {Sprzedawca}_{DD-MM-YYYY}_{ksef_stem}.pdf
+    i wgrywa do folder_id. Pomija duplikaty (porownuje ksef_stem z nazwami w folderze).
+    Zwraca (uploaded: list[str], skipped: list[str], errors: list[str])
+    """
+    existing_names = [f["name"] for f in list_pdfs_from_drive(drive_sa, folder_id)]
+    uploaded, skipped, errors = [], [], []
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+        for member in z.namelist():
+            if not member.lower().endswith(".pdf"):
+                continue
+            original_name = os.path.basename(member)
+            ksef_stem     = original_name[:-4]   # bez .pdf — unikalny numer KSeF
+
+            # Deduplikacja: sprawdz czy ksef_stem juz jest w nazwie jakiegos pliku
+            if any(ksef_stem in ex for ex in existing_names):
+                skipped.append(original_name)
+                continue
+
+            pdf_bytes = z.read(member)
+
+            # Sprzedawca i data z tresci PDF
+            seller, date_str, _ = extract_ksef_metadata(pdf_bytes)
+
+            # Fallback daty z nazwy pliku: {NIP}-{YYYYMMDD}-...
+            if not date_str:
+                m = re.match(r"^\d+-(\d{4})(\d{2})(\d{2})-", original_name)
+                if m:
+                    date_str = f"{m.group(3)}.{m.group(2)}.{m.group(1)}"
+
+            seller   = seller   or "KSeF"
+            date_str = date_str or "brak-daty"
+
+            new_name = (
+                f"{_clean_for_filename(seller)}_"
+                f"{date_str.replace('.', '-')}_"
+                f"{ksef_stem}.pdf"
+            )
+
+            try:
+                media = MediaIoBaseUpload(
+                    io.BytesIO(pdf_bytes), mimetype="application/pdf", resumable=False
+                )
+                drive_oauth.files().create(
+                    body={"name": new_name, "parents": [folder_id]},
+                    media_body=media,
+                ).execute()
+                existing_names.append(new_name)
+                uploaded.append(new_name)
+            except Exception as exc:
+                errors.append(f"{original_name}: {exc}")
+
+    return uploaded, skipped, errors
+
+
 def list_fvs_folders(service):
     """Szuka folderow [FVS] rekurencyjnie na calym dysku bota."""
     query = (
@@ -3932,7 +3990,7 @@ with st.expander("Bilans najemcy", expanded=False, key="exp_bilans_najemcy"):
 # ── Segment: miesiac + akcje ────────────────────────────────────────
 # ── Domyslne wartosci przyciskow admina (ksiegowa ich nie widzi) ──
 subfolder_name = ""
-btn_wyswietl = btn_szablon = btn_czytaj = btn_sprawdz = btn_ksef = False
+btn_wyswietl = btn_szablon = btn_czytaj = btn_sprawdz = btn_ksef = btn_upload_ksef = False
 btn_sprzedaz = btn_generuj_pdf = btn_sprawdz_sprzedaz = btn_paruj = False
 btn_status_parowania = btn_refresh_kpkw = btn_show_kpkw = False
 btn_sortuj_inne_rk = btn_usun_puste = btn_podsumowanie = False
@@ -4120,6 +4178,16 @@ if _role == "admin":
                 )
                 btn_ksef = st.button(
                     "Zmień nazwy plików KSeF",
+                    use_container_width=True,
+                )
+                ksef_zip_files = st.file_uploader(
+                    "Faktury KSeF (ZIP)",
+                    type=["zip"],
+                    accept_multiple_files=True,
+                    key="ksef_zip_uploader",
+                )
+                btn_upload_ksef = st.button(
+                    "Wgraj faktury KSeF z zip",
                     use_container_width=True,
                 )
     
@@ -4761,6 +4829,52 @@ if btn_ksef:
                     )
         except Exception as e:
             st.error(f"Wystąpił błąd: {e}")
+
+# ----------------------------------------------------------------
+# AKCJA: Wgraj faktury KSeF z zip
+# ----------------------------------------------------------------
+if btn_upload_ksef:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwę podfolderu.")
+    elif not ksef_zip_files:
+        st.error("Dodaj przynajmniej jeden plik ZIP.")
+    else:
+        name       = subfolder_name.strip()
+        user_drive = _get_user_drive_service()
+        if user_drive is None:
+            st.error("Brak OAuth credentials. Skonfiguruj [google_drive_oauth] w Secrets.")
+        else:
+            try:
+                creds         = get_credentials()
+                drive_service = build("drive", "v3", credentials=creds)
+                with st.spinner(f"Szukam folderu miesiąca '{name}'..."):
+                    month_folder = find_subfolder(
+                        drive_service, FAKTURY_KOSZTOWE_ID,
+                        f"{name} {FAKTURY_KOSZTOWE_SUFFIX}"
+                    )
+                if month_folder is None:
+                    st.error(f"Nie znaleziono folderu miesiąca '{name}' w Faktury-kosztowe.")
+                else:
+                    all_uploaded, all_skipped, all_errors = [], [], []
+                    for zf in ksef_zip_files:
+                        with st.spinner(f"Przetwarzam {zf.name}..."):
+                            up, sk, err = upload_ksef_from_zip_bytes(
+                                zf.read(), drive_service, user_drive, month_folder["id"]
+                            )
+                        all_uploaded.extend(up)
+                        all_skipped.extend(sk)
+                        all_errors.extend(err)
+                    st.success(
+                        f"Wgrano: {len(all_uploaded)} | "
+                        f"Pominięto (duplikaty): {len(all_skipped)} | "
+                        f"Błędy: {len(all_errors)}"
+                    )
+                    if all_skipped:
+                        st.info("Pominięto (już w folderze):\n" + "\n".join(f"• {n}" for n in all_skipped))
+                    for e in all_errors:
+                        st.error(e)
+            except Exception as e:
+                st.error(f"Wystąpił błąd: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Tworz wiersze faktur sprzedazy najemcom
