@@ -1681,16 +1681,15 @@ def _frozen_tx_pre_used(sections, transactions, statuses=("2",)):
     return pre_used
 
 
-def pair_transactions(candidates, transactions, pre_used=None, blocked=None, multi_eligible=None, ksef_eligible=None):
+def pair_transactions(candidates, transactions, pre_used=None, blocked=None, multi_eligible=None):
     """
-    Paruje kandydatow (wiersze arkusza) z transakcjami bankowymi w 7 przebiegach.
+    Paruje kandydatow (wiersze arkusza) z transakcjami bankowymi w 6 przebiegach.
     candidates: lista (idx, name, amount_float, direction)
                 direction: 1 = wpływ (sprzedaz), -1 = wydatek (kosztowe, wlasciciele)
     transactions: lista slownikow transakcji
     pre_used: zbior indeksow transakcji juz uzytych (status=2)
     blocked:  slownik {cand_idx: tx_idx} — kandydat NIE moze wrocic do starego TX (status=9)
     multi_eligible: zbior flat_idx dozwolonych w przejsciu 6 (tylko SPRZEDAZ i WLASC)
-    ksef_eligible: zbior flat_idx z sekcji KOSZTOWE z plikiem KSeF w col A (do przebiegu 0)
     Zwraca: (matched, name_only, used_tx)
       matched:   {cand_idx: tx_idx} — wszystkie udane parowania
       name_only: set(cand_idx)      — sparowane po nazwie bez zgodnosci kwoty (fioletowe)
@@ -1723,30 +1722,6 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None, mul
     def assign(cand_idx, tx_idx):
         matched[cand_idx] = tx_idx
         used_tx.add(tx_idx)
-
-    # Przebieg 0: numer faktury KSeF z nazwy pliku w tytule przelewu + kwota — tylko KOSZTOWE
-    # Wymaga znajomej kwoty (col B niepusta) — bez tego moze skrast TX przeznaczone dla innego wiersza.
-    if ksef_eligible:
-        for idx, name, amount, direction in candidates:
-            if idx in matched or idx not in ksef_eligible:
-                continue
-            if amount is None:
-                continue
-            m = _KSEF_NR_IN_FNAME.search(name)
-            if not m:
-                continue
-            nr_fakt = m.group(1)
-            abs_amt = abs(amount)
-            hits = [
-                i for i, tx in enumerate(transactions)
-                if i not in used_tx
-                and ok(idx, i)
-                and tx["kwota"] * direction > 0
-                and nr_fakt in tx["tytul"]
-                and abs(_parse_amount(tx["kwota"])) == abs_amt
-            ]
-            if hits:
-                assign(idx, hits[0])
 
     # Przebieg 1: nazwisko (ostatni token) + kwota
     for idx, name, amount, direction in candidates:
@@ -2464,8 +2439,7 @@ def sync_parowanie(worksheet, transactions):
 
     flat = [(c[0], c[3], c[4], c[5]) for c in candidates]
     multi_eligible = {c[0] for c in candidates if c[1] in (SEP_SPRZEDAZ, SEP_WLASC)}
-    ksef_eligible  = {c[0] for c in candidates if c[1] == SEP_KOSZTOWE and _KSEF_NR_IN_FNAME.search(c[3] or "")}
-    matched, name_only, name_amt_matched, extras, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked, multi_eligible=multi_eligible, ksef_eligible=ksef_eligible)
+    matched, name_only, name_amt_matched, extras, used_tx = pair_transactions(flat, transactions, pre_used=pre_used, blocked=blocked, multi_eligible=multi_eligible)
     # Bankomat TX (nie-zamrozone) ida do SEP_INNE_RK — usun z used_tx
     used_tx -= bankomat_excluded
     # TX wierszy status=3 — juz sa w arkuszu, nie trafiaja do unmatched_rows
