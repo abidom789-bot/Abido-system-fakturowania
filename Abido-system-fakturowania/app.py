@@ -1748,6 +1748,7 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None, mul
             name_amt_matched.add(idx)
 
     # Przebieg 3: nazwisko (bez kwoty) — WSZYSTKIE pasujace TX → multi-parowanie (fioletowe)
+    # Multi-parowanie (extras + used_tx) tylko dla SPRZEDAZ/WLASC — KOSZTOWE bierze jeden TX.
     for idx, name, amount, direction in candidates:
         if idx in matched:
             continue
@@ -1758,12 +1759,13 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None, mul
         if hits:
             assign(idx, hits[0])
             name_only.add(idx)
-            if len(hits) > 1:
+            if len(hits) > 1 and (multi_eligible is None or idx in multi_eligible):
                 extras[idx] = hits[1:]
                 for tx_i in hits[1:]:
                     used_tx.add(tx_i)
 
     # Przebieg 4: imie (pierwszy token, bez kwoty) — WSZYSTKIE pasujace TX → multi-parowanie (fioletowe)
+    # Multi-parowanie (extras + used_tx) tylko dla SPRZEDAZ/WLASC — KOSZTOWE bierze jeden TX.
     for idx, name, amount, direction in candidates:
         if idx in matched:
             continue
@@ -1774,7 +1776,7 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None, mul
         if hits:
             assign(idx, hits[0])
             name_only.add(idx)
-            if len(hits) > 1:
+            if len(hits) > 1 and (multi_eligible is None or idx in multi_eligible):
                 extras[idx] = hits[1:]
                 for tx_i in hits[1:]:
                     used_tx.add(tx_i)
