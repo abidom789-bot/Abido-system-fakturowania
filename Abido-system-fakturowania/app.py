@@ -1720,22 +1720,33 @@ def pair_transactions(candidates, transactions, pre_used=None, blocked=None, mul
         used_tx.add(tx_idx)
 
     # Przebieg 0: numer faktury KSeF z nazwy pliku w tytule przelewu + abs(kwota) — tylko KOSZTOWE
+    # Numer faktury KSeF jest globalnie unikalny — matchuj po numerze zawsze.
+    # Jesli kwota znana (col B niepusta) — dodatkowo weryfikuj abs(kwota).
     if ksef_eligible:
         for idx, name, amount, direction in candidates:
-            if idx in matched or idx not in ksef_eligible or amount is None:
+            if idx in matched or idx not in ksef_eligible:
                 continue
             m = _KSEF_NR_IN_FNAME.search(name)
             if not m:
                 continue
             nr_fakt = m.group(1)
-            abs_amt = abs(amount)
-            hits = [
-                i for i, tx in enumerate(transactions)
-                if i not in used_tx
-                and ok(idx, i)
-                and nr_fakt in tx["tytul"]
-                and abs(_parse_amount(tx["kwota"])) == abs_amt
-            ]
+            if amount is not None:
+                abs_amt = abs(amount)
+                hits = [
+                    i for i, tx in enumerate(transactions)
+                    if i not in used_tx
+                    and ok(idx, i)
+                    and nr_fakt in tx["tytul"]
+                    and abs(_parse_amount(tx["kwota"])) == abs_amt
+                ]
+            else:
+                # Kwota nieznana w col B — matchuj tylko po numerze (numer KSeF jest unikalny)
+                hits = [
+                    i for i, tx in enumerate(transactions)
+                    if i not in used_tx
+                    and ok(idx, i)
+                    and nr_fakt in tx["tytul"]
+                ]
             if hits:
                 assign(idx, hits[0])
 
