@@ -144,11 +144,15 @@ def download_pdf(service, file_id):
 def extract_gross_amount(pdf_bytes):
     _NUM = r"(-?[\d ]+[,.][\d]{2})"
     patterns = [
-        # "Kwota zapłaty (zaliczki) dokumentowana fakturą: X,XX" — KSeF EON faktury zaliczkowe
-        r"kwota\s+zap[lł]aty[^:]*:\s*" + _NUM,
-        # "Do zapłaty" / "Pozostaje do zapłaty" / "Razem do zapłaty"
+        # "Do zapłaty" / "Pozostaje do zapłaty" / "Razem do zapłaty" — NAJWYZSZY PRIORYTET
         #   — pomijamy 0,00 (Allegro: zapłacone przy zakupie)
         r"(?:razem\s+|pozostaje\s+)?do\s+zap[lł]aty[^\d]*?" + _NUM,
+        # "Kwota zapłaty (zaliczki) dokumentowana fakturą: X,XX" — KSeF EON faktury zaliczkowe
+        # Tylko gdy nie ma "do zapłaty". Uzywamy [^\d:]* bo pdfplumber niekiedy
+        # zwraca ł jako corrupted char. Wzorzec wymaga "(zaliczki)" aby uniknac false positive.
+        r"kwota\s+zap[^\d(]*\([^\)]*zaliczki[^\)]*\)[^\d:]*:\s*" + _NUM,
+        # "Wartość zamówienia lub umowy z uwzględnieniem kwoty podatku: X,XX" — KSeF EON fallback
+        r"warto[^\d]*?kwoty\s+podatku\s*:\s*" + _NUM,
         # "Wartość brutto X,XX" jako osobna linia (np. Allegro)
         r"warto[śs][ćc]\s+brutto\s+" + _NUM,
         # "Należność X,XX" — np. E.ON
