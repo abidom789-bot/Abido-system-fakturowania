@@ -142,7 +142,7 @@ def download_pdf(service, file_id):
 
 
 def extract_gross_amount(pdf_bytes):
-    _NUM = r"([\d ]+[,.][\d]{2})"
+    _NUM = r"(-?[\d ]+[,.][\d]{2})"
     patterns = [
         # "Kwota zapłaty (zaliczki) dokumentowana fakturą: X,XX" — KSeF EON faktury zaliczkowe
         r"kwota\s+zap[lł]aty[^:]*:\s*" + _NUM,
@@ -174,13 +174,20 @@ def extract_gross_amount(pdf_bytes):
                 val = m.group(1).strip().replace(" ", "")
                 if val in ("0,00", "0.00"):   # zapłacone z góry — szukaj dalej
                     continue
+                # PDF z minusem (faktura korygujaca/zwrot) → w arkuszu na plusie (wpływ)
+                # PDF bez minusa (zwykly koszt)            → w arkuszu na minusie (koszt)
+                if val.startswith("-"):
+                    return val[1:]
                 return "-" + val
         # Ostatnia szansa: linia "Razem netto VAT brutto" — ostatnia liczba w linii
         for line in tl.splitlines():
             if re.match(r"\s*(?:\d+\.\s+)?razem\b", line):
-                nums = re.findall(r"\d+[,.]\d{2}", line)
+                nums = re.findall(r"-?\d+[,.]\d{2}", line)
                 if len(nums) >= 2:
-                    return "-" + nums[-1]
+                    val = nums[-1]
+                    if val.startswith("-"):
+                        return val[1:]
+                    return "-" + val
     except Exception:
         pass
     return ""
