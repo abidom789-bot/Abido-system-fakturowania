@@ -1223,10 +1223,15 @@ def apply_sync_logic(existing_rows, new_data, has_address=False, default_status=
     Sub-wiersze (puste A, dane wyciagu w H) sa zawsze zachowywane razem z rodzicem.
     Zwraca (nowe_wiersze, skipped, added).
     """
-    # Sub-wiersze: puste col A, ale maja dane wyciagu (col H) — zachowujemy osobno
-    sub_rows = [row for row in existing_rows
+    # Kotwice status=3 — wyjmij przed przetwarzaniem, przywroc na oryginalne pozycje po
+    frozen3  = [(i, row) for i, row in enumerate(existing_rows)
+                if str(row[2] if len(row) > 2 else "").strip() == "3"]
+    working  = [row for row in existing_rows
+                if str(row[2] if len(row) > 2 else "").strip() != "3"]
+    # Sub-wiersze: puste col A, ale maja dane wyciagu (col E) — zachowujemy osobno
+    sub_rows = [row for row in working
                 if not (row[0] if row else "") and len(row) > 4 and row[4]]
-    main_rows = [row for row in existing_rows
+    main_rows = [row for row in working
                  if (row[0] if row else "")]
 
     verified = {
@@ -1250,6 +1255,9 @@ def apply_sync_logic(existing_rows, new_data, has_address=False, default_status=
             result.append(row)
     # Dolacz sub-wiersze na koniec (beda po rebuild w sekcji, nie ma lepszego miejsca)
     result.extend(sub_rows)
+    # Przywroc kotwice status=3 na ich oryginalne pozycje
+    for pos, row in sorted(frozen3, key=lambda x: x[0]):
+        result.insert(min(pos, len(result)), row)
     return result, len(verified), len(new_data) - len(verified)
 
 
@@ -1304,9 +1312,15 @@ def sort_inne_rk_nieznane(worksheet):
 def sync_kosztowe(worksheet, files_data):
     sections                  = read_all_sections(worksheet)
     new_rows, skipped, added  = apply_sync_logic(sections[SEP_KOSZTOWE], files_data)
-    # Faktury 'cash' na koniec sekcji kosztowej
-    new_rows.sort(key=lambda r: _is_cash(r[0] if r else ""))
-    sections[SEP_KOSZTOWE]    = new_rows
+    # Faktury 'cash' na koniec — kotwice status=3 nie sa sortowane, zostaja na pozycji
+    anchors     = [(i, r) for i, r in enumerate(new_rows)
+                   if str(r[2] if len(r) > 2 else "").strip() == "3"]
+    non_anchors = [r for r in new_rows
+                   if str(r[2] if len(r) > 2 else "").strip() != "3"]
+    non_anchors.sort(key=lambda r: _is_cash(r[0] if r else ""))
+    for pos, row in sorted(anchors, key=lambda x: x[0]):
+        non_anchors.insert(min(pos, len(non_anchors)), row)
+    sections[SEP_KOSZTOWE]    = non_anchors
     rebuild_sheet(worksheet, sections)
     return skipped, added
 
