@@ -264,7 +264,12 @@ def extract_ksef_metadata(pdf_bytes):
 # Wzorzec numeru KSeF: NIP(10)-DATA(8)-HEX-CRC
 _KSEF_NUM_PAT = re.compile(r"\d{10}-\d{8}-[0-9A-Fa-f]+-[0-9A-Fa-f]+")
 # Wzorzec do wyciagania numeru faktury z nazwy pliku KSeF (segment miedzy data a numerem KSeF)
-_KSEF_NR_IN_FNAME = re.compile(r"_\d{2}-\d{2}-\d{4}_(.+?)_\d{10}-\d{8}-", re.IGNORECASE)
+# Wymaga pelnego numeru KSeF (NIP-YYYYMMDD-HEX-HEX) po numerze faktury —
+# dzieki temu nie pasuje do zwyklych faktur z przypadkowym 10+8-cyfrowym ciagiem.
+_KSEF_NR_IN_FNAME = re.compile(
+    r"_\d{2}-\d{2}-\d{4}_(.+?)_\d{10}-\d{8}-[0-9A-Fa-f]+-[0-9A-Fa-f]+",
+    re.IGNORECASE
+)
 
 
 def _build_ksef_map(drive_sa, folder_id):
