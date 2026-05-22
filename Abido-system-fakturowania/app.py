@@ -205,15 +205,18 @@ def _clean_for_filename(name):
 
 def extract_ksef_metadata(pdf_bytes):
     """
-    Wyciąga z faktury KSeF: (nazwa_sprzedawcy, data_wystawienia_str, kwota_str).
-    data_wystawienia_str: 'DD.MM.YYYY' lub None.
-    kwota_str: np. '379,91' (bez minusa) lub None.
+    Wyciąga z faktury KSeF:
+      (seller, date_str, amount_str, numer_faktury, ksef_num)
+    date_str: 'DD.MM.YYYY' lub None.
+    amount_str: np. '379,91' (bez minusa) lub None.
+    numer_faktury: numer nadany przez wystawce (str) lub None.
+    ksef_num: numer KSeF (NIP-DATA-HEX-CRC) lub None.
     """
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             text = "".join(p.extract_text() or "" for p in pdf.pages)
     except Exception:
-        return None, None, None
+        return None, None, None, None, None
 
     # Sprzedawca: pierwsza "Nazwa: ..." nie zawierająca ABIDO (nabywca)
     seller = None
@@ -236,7 +239,20 @@ def extract_ksef_metadata(pdf_bytes):
     amount_raw = extract_gross_amount(pdf_bytes)   # zwraca np. "-379,91"
     amount_str = amount_raw.lstrip("-") if amount_raw else None
 
-    return seller, date_str, amount_str
+    # Numer Faktury wystawcy (linia po "Numer Faktury:")
+    numer_faktury = None
+    mf = re.search(r"Numer\s+Faktury\s*:?\s*\n?\s*([^\n]+)", text, re.IGNORECASE)
+    if mf:
+        numer_faktury = mf.group(1).strip()
+
+    # Numer KSeF systemowy
+    ksef_num = None
+    mk = re.search(r"Numer\s+KSEF\s*:?\s*(\d{10}-\d{8}-[0-9A-Fa-f]+-[0-9A-Fa-f]+)",
+                   text, re.IGNORECASE)
+    if mk:
+        ksef_num = mk.group(1).strip()
+
+    return seller, date_str, amount_str, numer_faktury, ksef_num
 
 
 def rename_ksef_invoices(service, ksef_folder_id):
@@ -255,8 +271,8 @@ def rename_ksef_invoices(service, ksef_folder_id):
         old_name = f["name"]
         file_id  = f["id"]
 
-        pdf_bytes             = download_pdf(service, file_id)
-        seller, date_str, amt = extract_ksef_metadata(pdf_bytes)
+        pdf_bytes                        = download_pdf(service, file_id)
+        seller, date_str, amt, _, _ksef = extract_ksef_metadata(pdf_bytes)
 
         if not seller or not date_str:
             results.append({"old_name": old_name, "new_name": None,
@@ -337,32 +353,63 @@ def unpack_ksef_zips(service, ksef_folder_id, upload_service):
     return results
 
 
+# Wzorzec numeru KSeF: NIP(10)-DATA(8)-HEX-CRC
+_KSEF_NUM_PAT = re.compile(r"\d{10}-\d{8}-[0-9A-Fa-f]+-[0-9A-Fa-f]+")
+
+
+def _build_ksef_map(drive_sa, folder_id):
+    """
+    Skanuje folder Drive, zwraca {numer_ksef: (file_id, file_name)}.
+    Pliki z KSeF w nazwie (nowa konwencja) — wyciaga KSeF z nazwy (szybko).
+    Pozostale (stara konwencja) — pobiera PDF i wyciaga KSeF z tresci (wolno, raz).
+    """
+    ksef_map = {}
+    for f in list_pdfs_from_drive(drive_sa, folder_id):
+        name = f["name"]
+        m = _KSEF_NUM_PAT.search(name)
+        if m:
+            ksef_map[m.group()] = (f["id"], name)
+        else:
+            try:
+                _, _, _, _, ksef_num = extract_ksef_metadata(
+                    download_pdf(drive_sa, f["id"])
+                )
+                if ksef_num:
+                    ksef_map[ksef_num] = (f["id"], name)
+            except Exception:
+                pass
+    return ksef_map
+
+
 def upload_ksef_from_zip_bytes(zip_bytes, drive_sa, drive_oauth, folder_id):
     """
-    Rozpakowuje ZIP z fakturami KSeF w pamieci, nadaje nazwy:
-      {Sprzedawca}_{DD-MM-YYYY}_{ksef_stem}.pdf
-    i wgrywa do folder_id. Pomija duplikaty (porownuje ksef_stem z nazwami w folderze).
-    Zwraca (uploaded: list[str], skipped: list[str], errors: list[str])
+    Rozpakowuje ZIP z fakturami KSeF w pamieci.
+    Deduplikuje po Numerze KSeF wyciagnietym z tresci PDF.
+    Pliki w starej konwencji (bez KSeF w nazwie) sa przemianowywane na nowa.
+    Nowa nazwa: {Sprzedawca}_{DD-MM-YYYY}_{NumerFaktury}_{KSeF}.pdf
+    Zwraca (uploaded, skipped, renamed, errors).
     """
-    existing_names = [f["name"] for f in list_pdfs_from_drive(drive_sa, folder_id)]
-    uploaded, skipped, errors = [], [], []
+    ksef_map = _build_ksef_map(drive_sa, folder_id)
+    uploaded, skipped, renamed, errors = [], [], [], []
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
         for member in z.namelist():
             if not member.lower().endswith(".pdf"):
                 continue
             original_name = os.path.basename(member)
-            ksef_stem     = original_name[:-4]   # bez .pdf — unikalny numer KSeF
+            pdf_bytes     = z.read(member)
 
-            # Deduplikacja: sprawdz czy ksef_stem juz jest w nazwie jakiegos pliku
-            if any(ksef_stem in ex for ex in existing_names):
-                skipped.append(original_name)
+            seller, date_str, _, numer_faktury, ksef_num = extract_ksef_metadata(pdf_bytes)
+
+            # Fallback KSeF z nazwy pliku jezeli PDF go nie zawiera
+            if not ksef_num:
+                m = _KSEF_NUM_PAT.search(original_name)
+                if m:
+                    ksef_num = m.group()
+
+            if not ksef_num:
+                errors.append(f"{original_name}: nie znaleziono Numeru KSeF")
                 continue
-
-            pdf_bytes = z.read(member)
-
-            # Sprzedawca i data z tresci PDF
-            seller, date_str, _ = extract_ksef_metadata(pdf_bytes)
 
             # Fallback daty z nazwy pliku: {NIP}-{YYYYMMDD}-...
             if not date_str:
@@ -370,15 +417,35 @@ def upload_ksef_from_zip_bytes(zip_bytes, drive_sa, drive_oauth, folder_id):
                 if m:
                     date_str = f"{m.group(3)}.{m.group(2)}.{m.group(1)}"
 
-            seller   = seller   or "KSeF"
-            date_str = date_str or "brak-daty"
+            seller     = seller        or "KSeF"
+            date_str   = date_str      or "brak-daty"
+            nr_fakt    = _clean_for_filename(numer_faktury) if numer_faktury else "brak-nr"
 
             new_name = (
                 f"{_clean_for_filename(seller)}_"
                 f"{date_str.replace('.', '-')}_"
-                f"{ksef_stem}.pdf"
+                f"{nr_fakt}_"
+                f"{ksef_num}.pdf"
             )
 
+            if ksef_num in ksef_map:
+                existing_id, existing_name = ksef_map[ksef_num]
+                if _KSEF_NUM_PAT.search(existing_name):
+                    # Juz w nowej konwencji — pomij
+                    skipped.append(original_name)
+                else:
+                    # Stara konwencja — przemianuj na nowa
+                    try:
+                        drive_sa.files().update(
+                            fileId=existing_id, body={"name": new_name}
+                        ).execute()
+                        ksef_map[ksef_num] = (existing_id, new_name)
+                        renamed.append(f"{existing_name} → {new_name}")
+                    except Exception as exc:
+                        errors.append(f"Rename '{existing_name}': {exc}")
+                continue
+
+            # Nowy plik — wgraj
             try:
                 media = MediaIoBaseUpload(
                     io.BytesIO(pdf_bytes), mimetype="application/pdf", resumable=False
@@ -387,12 +454,12 @@ def upload_ksef_from_zip_bytes(zip_bytes, drive_sa, drive_oauth, folder_id):
                     body={"name": new_name, "parents": [folder_id]},
                     media_body=media,
                 ).execute()
-                existing_names.append(new_name)
+                ksef_map[ksef_num] = (None, new_name)
                 uploaded.append(new_name)
             except Exception as exc:
                 errors.append(f"{original_name}: {exc}")
 
-    return uploaded, skipped, errors
+    return uploaded, skipped, renamed, errors
 
 
 def list_fvs_folders(service):
@@ -4862,22 +4929,28 @@ if btn_upload_ksef:
                 if month_folder is None:
                     st.error(f"Nie znaleziono folderu miesiąca '{name}' w Faktury-kosztowe.")
                 else:
-                    all_uploaded, all_skipped, all_errors = [], [], []
+                    all_uploaded, all_skipped, all_renamed, all_errors = [], [], [], []
                     for zf in ksef_zip_files:
                         with st.spinner(f"Przetwarzam {zf.name}..."):
-                            up, sk, err = upload_ksef_from_zip_bytes(
+                            up, sk, ren, err = upload_ksef_from_zip_bytes(
                                 zf.read(), drive_service, user_drive, month_folder["id"]
                             )
                         all_uploaded.extend(up)
                         all_skipped.extend(sk)
+                        all_renamed.extend(ren)
                         all_errors.extend(err)
                     st.success(
                         f"Wgrano: {len(all_uploaded)} | "
+                        f"Przemianowano: {len(all_renamed)} | "
                         f"Pominięto (duplikaty): {len(all_skipped)} | "
                         f"Błędy: {len(all_errors)}"
                     )
+                    if all_renamed:
+                        st.info("Przemianowano (stara → nowa konwencja):\n" +
+                                "\n".join(f"• {n}" for n in all_renamed))
                     if all_skipped:
-                        st.info("Pominięto (już w folderze):\n" + "\n".join(f"• {n}" for n in all_skipped))
+                        st.info("Pominięto (już w folderze):\n" +
+                                "\n".join(f"• {n}" for n in all_skipped))
                     for e in all_errors:
                         st.error(e)
             except Exception as e:
