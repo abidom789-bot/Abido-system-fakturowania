@@ -1321,7 +1321,7 @@ def sync_kosztowe(worksheet, files_data):
     for pos, row in sorted(anchors, key=lambda x: x[0]):
         non_anchors.insert(min(pos, len(non_anchors)), row)
     sections[SEP_KOSZTOWE]    = non_anchors
-    rebuild_sheet(worksheet, sections)
+    rebuild_sheet(worksheet, sections, blank_rows={})
     return skipped, added
 
 
