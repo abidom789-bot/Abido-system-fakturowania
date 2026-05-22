@@ -2734,7 +2734,7 @@ def sync_parowanie(worksheet, transactions):
                     _v = 0.0
                 sheet_tx_sum += _v
 
-    rebuild_sheet(worksheet, sections)
+    rebuild_sheet(worksheet, sections, blank_rows={})
 
     # Kolorowanie wierszy po markerach w kolumnie N (Uwagi, poz. 13)
     all_vals = worksheet.get_all_values()
