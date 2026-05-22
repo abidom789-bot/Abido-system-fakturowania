@@ -255,102 +255,6 @@ def extract_ksef_metadata(pdf_bytes):
     return seller, date_str, amount_str, numer_faktury, ksef_num
 
 
-def rename_ksef_invoices(service, ksef_folder_id):
-    """
-    Zmienia nazwy plików PDF w folderze KSeF wg schematu:
-      Nazwa_Sprzedawcy_DD-MM-YYYY_kwota,xx.pdf
-    Duplikaty dostają sufiks _2, _3, ...
-    Zwraca listę słowników: {old_name, new_name, status, is_duplicate}
-      status: 'ok' | 'bez_zmian' | 'blad_meta' | 'blad_rename: ...'
-    """
-    files    = list_pdfs_from_drive(service, ksef_folder_id)
-    existing = {f["name"] for f in files}
-    results  = []
-
-    for f in files:
-        old_name = f["name"]
-        file_id  = f["id"]
-
-        pdf_bytes                        = download_pdf(service, file_id)
-        seller, date_str, amt, _, _ksef = extract_ksef_metadata(pdf_bytes)
-
-        if not seller or not date_str:
-            results.append({"old_name": old_name, "new_name": None,
-                            "status": "blad_meta", "is_duplicate": False})
-            continue
-
-        base_stem = f"{_clean_for_filename(seller)}_{date_str.replace('.', '-')}_{amt or '0'}"
-        base_name = base_stem + ".pdf"
-
-        existing.discard(old_name)          # ta nazwa zostaje zwolniona
-        candidate, suffix = base_name, 1
-        while candidate in existing:
-            suffix   += 1
-            candidate = f"{base_stem}_{suffix}.pdf"
-        existing.add(candidate)
-
-        is_dup = suffix > 1
-
-        if candidate == old_name:
-            results.append({"old_name": old_name, "new_name": candidate,
-                            "status": "bez_zmian", "is_duplicate": is_dup})
-            continue
-
-        try:
-            service.files().update(fileId=file_id, body={"name": candidate}).execute()
-            results.append({"old_name": old_name, "new_name": candidate,
-                            "status": "ok", "is_duplicate": is_dup})
-        except Exception as exc:
-            existing.discard(candidate)
-            existing.add(old_name)
-            results.append({"old_name": old_name, "new_name": None,
-                            "status": f"blad_rename: {exc}", "is_duplicate": False})
-
-    return results
-
-
-def unpack_ksef_zips(service, ksef_folder_id, upload_service):
-    """
-    Szuka plików ZIP w folderze KSeF, wypakowuje PDF-y i wgrywa je do tego folderu,
-    po czym usuwa ZIPy.
-    service        — Service Account (listowanie, pobieranie, usuwanie ZIPów)
-    upload_service — OAuth user service (wgrywanie PDF-ów — SA nie ma storage quota)
-    Zwraca listę słowników: {zip_name, extracted: [str, ...], status}
-      status: 'ok' | 'blad: ...'
-    """
-    query = f"'{ksef_folder_id}' in parents and trashed=false"
-    resp  = service.files().list(q=query, fields="files(id, name)").execute()
-    zips  = [f for f in resp.get("files", []) if f["name"].lower().endswith(".zip")]
-
-    results = []
-    for zf in zips:
-        zip_name  = zf["name"]
-        zip_id    = zf["id"]
-        extracted = []
-        try:
-            zip_bytes = download_pdf(service, zip_id)
-            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-                for member in z.namelist():
-                    if not member.lower().endswith(".pdf"):
-                        continue
-                    pdf_name  = os.path.basename(member)
-                    pdf_bytes = z.read(member)
-                    media     = MediaIoBaseUpload(
-                        io.BytesIO(pdf_bytes),
-                        mimetype="application/pdf",
-                        resumable=False,
-                    )
-                    upload_service.files().create(
-                        body={"name": pdf_name, "parents": [ksef_folder_id]},
-                        media_body=media,
-                    ).execute()
-                    extracted.append(pdf_name)
-            upload_service.files().delete(fileId=zip_id).execute()
-            results.append({"zip_name": zip_name, "extracted": extracted, "status": "ok"})
-        except Exception as exc:
-            results.append({"zip_name": zip_name, "extracted": extracted,
-                            "status": f"blad: {exc}"})
-    return results
 
 
 # Wzorzec numeru KSeF: NIP(10)-DATA(8)-HEX-CRC
@@ -4064,7 +3968,7 @@ with st.expander("Bilans najemcy", expanded=False, key="exp_bilans_najemcy"):
 # ── Segment: miesiac + akcje ────────────────────────────────────────
 # ── Domyslne wartosci przyciskow admina (ksiegowa ich nie widzi) ──
 subfolder_name = ""
-btn_wyswietl = btn_szablon = btn_czytaj = btn_sprawdz = btn_ksef = btn_upload_ksef = False
+btn_wyswietl = btn_szablon = btn_czytaj = btn_sprawdz = btn_upload_ksef = False
 btn_sprzedaz = btn_generuj_pdf = btn_sprawdz_sprzedaz = btn_paruj = False
 btn_status_parowania = btn_refresh_kpkw = btn_show_kpkw = False
 btn_sortuj_inne_rk = btn_usun_puste = btn_podsumowanie = False
@@ -4248,10 +4152,6 @@ if _role == "admin":
                 )
                 btn_sprawdz = st.button(
                     "Sprawdz stan faktur kosztowych",
-                    use_container_width=True,
-                )
-                btn_ksef = st.button(
-                    "Zmień nazwy plików KSeF",
                     use_container_width=True,
                 )
                 ksef_zip_files = st.file_uploader(
@@ -4826,83 +4726,6 @@ if st.session_state.get("run_czytaj"):
                 )
     except Exception as e:
         st.error(f"Wystapil blad: {e}")
-
-# ----------------------------------------------------------------
-# AKCJA: Zmień nazwy plików KSeF
-# ----------------------------------------------------------------
-if btn_ksef:
-    if not subfolder_name.strip():
-        st.error("Wpisz nazwę podfolderu przed uruchomieniem.")
-    else:
-        name             = subfolder_name.strip()
-        ksef_folder_name = f"ksef{name}"
-        try:
-            creds         = get_credentials()
-            drive_service = build("drive", "v3", credentials=creds)
-
-            with st.spinner(f"Szukam folderu miesiąca '{name}'..."):
-                month_folder = find_subfolder(drive_service, FAKTURY_KOSZTOWE_ID, f"{name} {FAKTURY_KOSZTOWE_SUFFIX}")
-
-            if month_folder is None:
-                st.error(f"Nie znaleziono folderu miesiąca '{name}' w Faktury-kosztowe.")
-            else:
-                with st.spinner(f"Szukam podfolderu '{ksef_folder_name}'..."):
-                    ksef_folder = find_subfolder(drive_service, month_folder["id"], ksef_folder_name)
-
-                if ksef_folder is None:
-                    st.error(f"Nie znaleziono podfolderu '{ksef_folder_name}' wewnątrz '{name}'.")
-                else:
-                    # ── Krok 1: Rozpakuj ZIPy ─────────────────────────────────
-                    user_drive = _get_user_drive_service()
-                    if user_drive is None:
-                        st.warning(
-                            "Brak OAuth credentials — pominięto rozpakowywanie ZIPów. "
-                            "Skonfiguruj [google_drive_oauth] w Secrets aby wgrywać pliki."
-                        )
-                        unpack_results = []
-                    else:
-                        with st.spinner("Szukam i rozpakowuję pliki ZIP..."):
-                            unpack_results = unpack_ksef_zips(
-                                drive_service, ksef_folder["id"], upload_service=user_drive
-                            )
-
-                    if unpack_results:
-                        total_extracted = sum(len(r["extracted"]) for r in unpack_results)
-                        zip_errors = [r for r in unpack_results if r["status"].startswith("blad")]
-                        st.info(
-                            f"Rozpakowano {len(unpack_results)} ZIP(ów), "
-                            f"wyciągnięto {total_extracted} PDF(ów)."
-                        )
-                        for r in zip_errors:
-                            st.error(f"Błąd ZIP '{r['zip_name']}': {r['status']}")
-
-                    # ── Krok 2: Zmień nazwy PDF-ów ────────────────────────────
-                    with st.spinner("Przetwarzam i zmieniam nazwy plików KSeF..."):
-                        results = rename_ksef_invoices(drive_service, ksef_folder["id"])
-
-                    ok_cnt  = sum(1 for r in results if r["status"] == "ok")
-                    unch    = sum(1 for r in results if r["status"] == "bez_zmian")
-                    errors  = [r for r in results if r["status"].startswith("blad")]
-                    dups    = [r for r in results if r["is_duplicate"]]
-
-                    st.success(f"Gotowe! Zmieniono: {ok_cnt} | Już poprawne: {unch} | Łącznie: {len(results)}")
-
-                    if dups:
-                        dup_lines = "\n".join(f"• {r['old_name']} → **{r['new_name']}**" for r in dups)
-                        st.warning(f"⚠️ Wykryto {len(dups)} duplikat(ów) — nadano sufiksy _2, _3, ...\n\n{dup_lines}")
-
-                    for r in errors:
-                        st.error(f"Błąd: {r['old_name']} — {r['status']}")
-
-                    st.dataframe(
-                        [{"Stara nazwa": r["old_name"],
-                          "Nowa nazwa":  r["new_name"] or "—",
-                          "Status":      r["status"]}
-                         for r in results],
-                        use_container_width=True,
-                    )
-        except Exception as e:
-            st.error(f"Wystąpił błąd: {e}")
 
 # ----------------------------------------------------------------
 # AKCJA: Wgraj faktury KSeF z zip
