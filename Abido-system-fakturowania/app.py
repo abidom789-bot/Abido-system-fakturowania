@@ -2090,13 +2090,19 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
 
     # ── DANE Z PLIKU LISTA_OPERACJI (opcjonalnie) ─────────────────────────────
     bank_tx_count = None; bank_tx_sum = None; bank_diag = None
+    bank_tx_in_count = None; bank_tx_in_sum = None
+    bank_tx_out_count = None; bank_tx_out_sum = None
     if service and subfolder_name:
         bank_file = find_bank_file(service, subfolder_name)
         if bank_file:
             xls_bytes = download_pdf(service, bank_file["id"])
             transactions = parse_bank_statement(xls_bytes)
-            bank_tx_count = len(transactions)
-            bank_tx_sum   = round(sum(t["kwota"] for t in transactions), 2)
+            bank_tx_count     = len(transactions)
+            bank_tx_sum       = round(sum(t["kwota"] for t in transactions), 2)
+            bank_tx_in_count  = sum(1 for t in transactions if t["kwota"] > 0)
+            bank_tx_in_sum    = round(sum(t["kwota"] for t in transactions if t["kwota"] > 0), 2)
+            bank_tx_out_count = sum(1 for t in transactions if t["kwota"] < 0)
+            bank_tx_out_sum   = round(sum(t["kwota"] for t in transactions if t["kwota"] < 0), 2)
 
             def _tx_sig_local(tx):
                 return (round(float(tx["kwota"]), 2), _norm_date(tx["data_ks"]),
@@ -2173,6 +2179,8 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     rows.append(["wyciag_Kwota w arkuszu", wyciag_count, wyciag_sum, E, E, E, E])
     if bank_tx_count is not None:
         rows.append(["Lista operacji xlsx \u2014 liczba TX", bank_tx_count, bank_tx_sum, E, E, E, E])
+        rows.append(["Lista operacji wp\u0142ywy",  bank_tx_in_count,  bank_tx_in_sum,  E, E, E, E])
+        rows.append(["Lista operacji wyp\u0142ywy", bank_tx_out_count, bank_tx_out_sum, E, E, E, E])
     rows.append([E] * 7)
     rows.append([E] * 7)
 
