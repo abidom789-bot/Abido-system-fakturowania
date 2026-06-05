@@ -4102,12 +4102,15 @@ with st.expander("Bilans najemcy", expanded=False, key="exp_bilans_najemcy"):
                     return None
 
             def _sum_kwota_bil(rows):
-                """Sumuje col B tylko z głównych wierszy (col A niepuste = faktura)."""
+                """Sumuje col B tylko z głównych wierszy (col A niepuste = faktura).
+                Dla roz_depo: gdy col B pusta, bierze wyciag_Kwota (col F)."""
                 total = 0.0
                 for r in rows:
                     if not str(r.get("Nazwa / Plik", "")).strip():
                         continue  # sub-wiersz — pomiń
                     v = _parse_amount(r["Kwota brutto"])
+                    if (v is None or v == 0.0) and "roz_depo" in r.get("Klucz_Ksiegowy", "").lower():
+                        v = abs(_parse_signed(r.get("wyciag_Kwota", "")) or 0.0)
                     total += abs(v or 0.0)
                 return total
 
