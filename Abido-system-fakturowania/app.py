@@ -3269,13 +3269,16 @@ def _parse_sh_query(raw):
     return (raw, [], "OR")
 
 
+_MMYYYY_PAT = re.compile(r"^(0[1-9]|1[0-2])\d{4}$")
+
+
 def search_sheet_rows(spreadsheet, query_text, sheet_filter=None, tags=None, mode="OR"):
     """
     Szuka wierszy w Google Sheets.
     query_text: tekst do szukania w dowolnej kolumnie (lub '').
     tags:       lista tagów z _SHEET_TAG_MATCHERS (lub None/[]).
     mode:       'OR' — tekst LUB tag; 'AND' — tekst I tag (oba muszą pasowac).
-    sheet_filter: None lub '' = wszystkie; inaczej = konkretna zakladka.
+    sheet_filter: None lub '' = zakładki MMYYYY; inaczej = konkretna zakladka.
     Zwraca (wyniki: list[dict], nazwy_zakladek: list[str]).
     """
     q            = (query_text or "").strip().lower()
@@ -3286,7 +3289,7 @@ def search_sheet_rows(spreadsheet, query_text, sheet_filter=None, tags=None, mod
     if sheet_filter:
         worksheets = [ws for ws in all_worksheets if ws.title == sheet_filter]
     else:
-        worksheets = all_worksheets
+        worksheets = [ws for ws in all_worksheets if _MMYYYY_PAT.match(ws.title)]
 
     results = []
     for ws in worksheets:
@@ -3301,22 +3304,18 @@ def search_sheet_rows(spreadsheet, query_text, sheet_filter=None, tags=None, mod
             klucz  = padded[_KLUCZ_IDX].lower()
 
             text_match = bool(q) and any(q in str(cell).lower() for cell in row)
-            _tag_fn    = all if mode == "AND" else any
-            tag_match  = bool(active_tags) and _tag_fn(
+            tag_match  = bool(active_tags) and all(
                 _SHEET_TAG_MATCHERS[t](klucz)
                 for t in active_tags
                 if t in _SHEET_TAG_MATCHERS
             )
 
-            if mode == "AND":
-                if q and active_tags:
-                    hit = text_match and tag_match
-                elif q:
-                    hit = text_match
-                else:
-                    hit = tag_match
-            else:  # OR
-                hit = text_match or tag_match
+            if q and active_tags:
+                hit = text_match and tag_match
+            elif q:
+                hit = text_match
+            else:
+                hit = tag_match
 
             if hit:
                 entry = {"Zakladka": ws.title}
