@@ -4202,7 +4202,7 @@ if _role == "admin":
             btn_wyswietl = st.button("Wyswietl ex", use_container_width=True)
     
         # Trzy kolumny akcji
-        left_col, mid_col, right_col, extra_col = st.columns(4)
+        col_kos, col_prz, col_wla, col_rk, col_nzn = st.columns(5)
     
         @st.dialog("Podgląd KP / KW", width="large")
         def _dialog_podglad_kp_kw(html):
@@ -4347,28 +4347,20 @@ if _role == "admin":
             if not ok_count or not ok_sum:
                 st.warning("Nadal są różnice po reconcile — sprawdź arkusz ręcznie.")
     
-        with left_col:
-            with st.container(border=True):
-                st.markdown("#### Szablon miesiaca")
-                btn_szablon = st.button(
-                    "Utwórz szablon miesiaca",
-                    use_container_width=True,
-                    type="primary",
-                )
-    
+        with col_kos:
             with st.container(border=True):
                 st.markdown("#### Faktury kosztowe")
+                btn_sprawdz = st.button(
+                    "Sprawdz stan",
+                    use_container_width=True,
+                )
                 btn_czytaj = st.button(
                     "Zaczytaj faktury kosztowe",
                     use_container_width=True,
                     type="primary",
                 )
-                btn_sprawdz = st.button(
-                    "Sprawdz stan faktur kosztowych",
-                    use_container_width=True,
-                )
                 btn_sort_kosztowe = st.button(
-                    "Sortuj i nadaj kolory — Kosztowe",
+                    "Sortuj i nadaj kolory",
                     use_container_width=True,
                 )
                 ksef_zip_files = st.file_uploader(
@@ -4378,36 +4370,59 @@ if _role == "admin":
                     key="ksef_zip_uploader",
                 )
                 btn_upload_ksef = st.button(
-                    "Wgraj faktury KSeF z zip",
+                    "Wgraj KSeF z zip",
                     use_container_width=True,
                 )
-    
-        with mid_col:
+
+        with col_prz:
             with st.container(border=True):
                 st.markdown("#### Faktury sprzedazy")
+                btn_sprawdz_sprzedaz = st.button(
+                    "Sprawdz stan",
+                    use_container_width=True,
+                )
                 btn_sprzedaz = st.button(
-                    "Tworz wstepne wiersze faktur sprzedazy",
+                    "Tworz wiersze faktur",
                     use_container_width=True,
                     type="primary",
                 )
                 btn_generuj_pdf = st.button(
-                    "Generuj faktury sprzedazy PDF",
-                    use_container_width=True,
-                )
-                btn_sprawdz_sprzedaz = st.button(
-                    "Sprawdz stan faktur sprzedazy",
+                    "Generuj PDF",
                     use_container_width=True,
                 )
                 btn_kolory_sprzedaz = st.button(
-                    "Nadaj kolory — Sprzedaz",
+                    "Nadaj kolory",
                     use_container_width=True,
                 )
-    
-        with right_col:
+
+        with col_wla:
             with st.container(border=True):
-                st.markdown("#### Parowanie")
+                st.markdown("#### Wlasciciele")
+
+        with col_rk:
+            with st.container(border=True):
+                st.markdown("#### Inne RK")
+                btn_sortuj_inne_rk = st.button(
+                    "Sortuj Inne RK i Nieznane",
+                    use_container_width=True,
+                )
+
+        with col_nzn:
+            with st.container(border=True):
+                st.markdown("#### Nieznane")
+
+        # ── Pozostałe operacje ───────────────────────────────────────
+        with st.container(border=True):
+            st.markdown("#### Pozostałe operacje")
+            _po_c1, _po_c2, _po_c3, _po_c4 = st.columns(4)
+            with _po_c1:
+                btn_szablon = st.button(
+                    "Utwórz szablon miesiaca",
+                    use_container_width=True,
+                    type="primary",
+                )
                 btn_paruj = st.button(
-                    "Paruj wyciag bankowy z arkuszem",
+                    "Paruj wyciag bankowy",
                     use_container_width=True,
                     type="primary",
                 )
@@ -4415,16 +4430,13 @@ if _role == "admin":
                     "Status parowania",
                     use_container_width=True,
                 )
+            with _po_c2:
                 btn_refresh_kpkw = st.button(
                     "Odśwież KP / KW",
                     use_container_width=True,
                 )
                 btn_show_kpkw = st.button(
                     "Pokaż KP / KW",
-                    use_container_width=True,
-                )
-                btn_sortuj_inne_rk = st.button(
-                    "Sortuj Inne RK oraz Nieznane",
                     use_container_width=True,
                 )
                 btn_usun_puste = st.button(
@@ -4435,10 +4447,7 @@ if _role == "admin":
                     "Dodaj podsumowanie segmentów",
                     use_container_width=True,
                 )
-
-        with extra_col:
-            with st.container(border=True):
-                st.markdown("#### Inne funkcje")
+            with _po_c3:
                 _SEG_OPTIONS = {
                     "Faktury kosztowe":            SEP_KOSZTOWE,
                     "Faktury sprzedazy":           SEP_SPRZEDAZ,
@@ -4457,9 +4466,11 @@ if _role == "admin":
                     key="n_puste_wiersze",
                 )
                 btn_dodaj_puste = st.button(
-                    "Dodaj puste wiersze do segmentu",
+                    "Dodaj puste wiersze",
                     use_container_width=True,
                 )
+            with _po_c4:
+                pass
 
 # ----------------------------------------------------------------
 # AKCJA: Dodaj puste wiersze do segmentu
