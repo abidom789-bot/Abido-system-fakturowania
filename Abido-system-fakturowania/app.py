@@ -1589,22 +1589,38 @@ def find_wyciag_file(service, subfolder_name):
 
 def parse_wyciag_summary(pdf_bytes):
     """
-    Parsuje stronę 1 wyciągu bankowego PDF.
-    Zwraca (wplywy, wyplywy) jako float lub (None, None) gdy nie znaleziono.
+    Parsuje wyciąg bankowy PDF.
+    Sumy z nagłówka strony 1, liczniki z transakcji na stronach 2+.
+    Zwraca (wplywy_sum, wyplywy_sum, wplywy_count, wyplywy_count)
+    lub (None, None, None, None) gdy nie znaleziono.
     """
-    _num = r"[\d\s]+,\d{2}"
     _pat_in  = re.compile(r"Suma\s+wp[łl]yw[óo]w\s+([\d\s]+,\d{2})", re.IGNORECASE)
     _pat_out = re.compile(r"Suma\s+wyp[łl]yw[óo]w\s+(-?[\d\s]+,\d{2})", re.IGNORECASE)
+    _pat_amt = re.compile(r"(-?[\d\s]{1,15},\d{2})\s+PLN")
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            text = pdf.pages[0].extract_text() or ""
-        m_in  = _pat_in.search(text)
-        m_out = _pat_out.search(text)
-        wplywy  = float(m_in.group(1).replace(" ", "").replace(",", "."))  if m_in  else None
-        wyplywy = float(m_out.group(1).replace(" ", "").replace(",", ".")) if m_out else None
-        return wplywy, wyplywy
+            page1_text = pdf.pages[0].extract_text() or ""
+            m_in  = _pat_in.search(page1_text)
+            m_out = _pat_out.search(page1_text)
+            wplywy_sum  = float(m_in.group(1).replace(" ", "").replace(",", "."))  if m_in  else None
+            wyplywy_sum = float(m_out.group(1).replace(" ", "").replace(",", ".")) if m_out else None
+
+            in_count = 0; out_count = 0
+            for page in pdf.pages[1:]:
+                text = page.extract_text() or ""
+                for m in _pat_amt.finditer(text):
+                    try:
+                        val = float(m.group(1).replace(" ", "").replace(",", "."))
+                        if val > 0:
+                            in_count += 1
+                        elif val < 0:
+                            out_count += 1
+                    except ValueError:
+                        pass
+
+        return wplywy_sum, wyplywy_sum, in_count, out_count
     except Exception:
-        return None, None
+        return None, None, None, None
 
 
 def parse_bank_statement(xls_bytes):
@@ -2129,6 +2145,7 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     bank_tx_in_count = None; bank_tx_in_sum = None
     bank_tx_out_count = None; bank_tx_out_sum = None
     wyciag_in = None; wyciag_out = None; wyciag_found = False
+    wyciag_in_count = None; wyciag_out_count = None
     if service and subfolder_name:
         bank_file = find_bank_file(service, subfolder_name)
         if bank_file:
@@ -2177,7 +2194,7 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         if wyciag_file:
             wyciag_found = True
             wyciag_bytes = download_pdf(service, wyciag_file["id"])
-            wyciag_in, wyciag_out = parse_wyciag_summary(wyciag_bytes)
+            wyciag_in, wyciag_out, wyciag_in_count, wyciag_out_count = parse_wyciag_summary(wyciag_bytes)
         else:
             wyciag_found = False
 
@@ -2228,8 +2245,14 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         rows.append(["Lista operacji wyp\u0142ywy", bank_tx_out_count, bank_tx_out_sum, E, E, E, E])
     if service and subfolder_name:
         if wyciag_found:
-            rows.append(["Wyci\u0105g bankowy wp\u0142ywy",  E, wyciag_in  if wyciag_in  is not None else E, E, E, E, E])
-            rows.append(["Wyci\u0105g bankowy wyp\u0142ywy", E, wyciag_out if wyciag_out is not None else E, E, E, E, E])
+            rows.append(["Wyci\u0105g bankowy wp\u0142ywy",
+                         wyciag_in_count  if wyciag_in_count  is not None else E,
+                         wyciag_in        if wyciag_in        is not None else E,
+                         E, E, E, E])
+            rows.append(["Wyci\u0105g bankowy wyp\u0142ywy",
+                         wyciag_out_count if wyciag_out_count is not None else E,
+                         wyciag_out       if wyciag_out       is not None else E,
+                         E, E, E, E])
         else:
             rows.append(["Wyci\u0105g bankowy wp\u0142ywy",  E, "brak wyci\u0105gu w folderze", E, E, E, E])
             rows.append(["Wyci\u0105g bankowy wyp\u0142ywy", E, "brak wyci\u0105gu w folderze", E, E, E, E])
