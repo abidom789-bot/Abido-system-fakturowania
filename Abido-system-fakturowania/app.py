@@ -4709,7 +4709,9 @@ if btn_sh_search:
                 results, sheet_names = search_sheet_rows(
                     sp, text_q, sheet_filter, tags=search_tags, mode=search_mode
                 )
+            st.session_state.pop("sheet_tab_names", None)
             st.session_state["sheet_tab_names"] = sorted(sheet_names)
+            st.session_state.pop("sh_results", None)
             st.session_state["sh_results"] = {"rows": results, "label": _label}
             # Pre-select checkboxów z *-składni
             _tag_to_key = {
@@ -5274,6 +5276,8 @@ if btn_wyswietl:
                 worksheet = None
             if worksheet:
                 sections = read_all_sections(worksheet)
+                for _k in ("ex_sections", "ex_file_links", "editor_all"):
+                    st.session_state.pop(_k, None)
                 st.session_state["ex_name"]     = name
                 st.session_state["ex_sections"] = sections
                 # Pobierz linki do plikow na Drive (kosztowe + sprzedazy)
@@ -5433,6 +5437,7 @@ if btn_nj_search:
                 rows          = search_najemca_sheets(sp, _nj_imie, _nj_nazwisko, tabs, mode=_nj_mode)
                 drive_folders = find_drive_folders_by_name(drive_service, _nj_imie, _nj_nazwisko, mode=_nj_mode)
 
+            st.session_state.pop("nj_results", None)
             st.session_state["nj_results"] = {
                 "imie":          _nj_imie,
                 "nazwisko":      _nj_nazwisko,
