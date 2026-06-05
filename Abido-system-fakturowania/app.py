@@ -1134,6 +1134,7 @@ _ORANGE_BG     = {"red": 1.0,  "green": 0.88, "blue": 0.70}
 _KP_BG         = {"red": 0.82, "green": 0.96, "blue": 0.77}   # kasa przyjela (gotowka wplyn)
 _KW_BG         = {"red": 0.97, "green": 0.82, "blue": 0.82}   # kasa wyplacila (gotowka wydat)
 _MULTI_BG      = {"red": 0.91, "green": 0.88, "blue": 0.98}   # multi-parowanie (1 faktura → kilka TX)
+_ZERO_SPRZEDAZ_BG = {"red": 0.55, "green": 0.55, "blue": 0.55}  # sprzedaz kwota=0 (zaplacone z gory)
 _FROZEN3_BG    = {"red": 0.78, "green": 0.78, "blue": 0.78}   # status=3 beton (szary)
 
 SEP_COLORS = {
@@ -1162,6 +1163,7 @@ def rebuild_sheet(worksheet, sections, blank_rows=None):
     multi_rows    = []   # wiersze nalezace do multi-parowania (1 faktura → kilka TX)
     purple_rows   = []   # sparowane po nazwie bez zgodnosci kwoty (col B ≠ col F)
     frozen3_rows  = []   # wiersze ze statusem=3 (nietykalny kolor i pozycja)
+    zero_sprzedaz_rows = []  # sprzedaz z kwota=0 w col B
     last_main_num = None # numer wiersza ostatniego "glownego" wiersza (col A niepuste)
     for sep in SECTION_ORDER:
         all_new.append([sep, "", "", ""])
@@ -1206,6 +1208,15 @@ def rebuild_sheet(worksheet, sections, blank_rows=None):
                 kp_rows.append(row_num)
             elif "_rk_kw" in klucz:
                 kw_rows.append(row_num)
+            if sep == SEP_SPRZEDAZ and col_a:
+                try:
+                    _amt = abs(float(
+                        re.sub(r"[^\d,.\-]", "", str(row[1] if len(row) > 1 else "")).replace(",", ".")
+                    ))
+                    if _amt == 0.0:
+                        zero_sprzedaz_rows.append(row_num)
+                except (ValueError, TypeError):
+                    pass
         _blank = [""] * len(HEADER_ROW)
         for _ in range(blank_rows.get(sep, 0)):
             all_new.append(_blank)
@@ -1254,6 +1265,8 @@ def rebuild_sheet(worksheet, sections, blank_rows=None):
         row_fmts.append((row_num, {"backgroundColor": _KW_BG}))
     for row_num in purple_rows:
         row_fmts.append((row_num, {"backgroundColor": _PURPLE_BG}))
+    for row_num in zero_sprzedaz_rows:
+        row_fmts.append((row_num, {"backgroundColor": _ZERO_SPRZEDAZ_BG}))
     # status=3: kolor nie jest nadpisywany — uzytkownik ustawia go recznie i jest zachowany
     _batch_format_rows(worksheet, row_fmts)
     # Jawnie ustaw format liczbowy dla wyciag_Kwota (kol F) — bez tego kol. dziedziczy
