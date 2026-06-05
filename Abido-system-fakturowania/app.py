@@ -1308,6 +1308,34 @@ def apply_sync_logic(existing_rows, new_data, has_address=False, default_status=
     return result, len(verified), len(new_data) - len(verified)
 
 
+def sort_kosztowe(worksheet):
+    """
+    Sortuje SEP_KOSZTOWE: normalne → _rk_kw → _rk_kp na dole.
+    Status=3 to kotwice — zostają na swoich pozycjach.
+    Zwraca liczbę wierszy bez kotwic.
+    """
+    sections = read_all_sections(worksheet)
+    rows = sections[SEP_KOSZTOWE]
+
+    anchors     = [(i, r) for i, r in enumerate(rows)
+                   if str(r[2] if len(r) > 2 else "").strip() == "3"]
+    non_anchors = [r for r in rows
+                   if str(r[2] if len(r) > 2 else "").strip() != "3"]
+
+    normal = [r for r in non_anchors if "_rk_kw" not in str(r[3] if len(r) > 3 else "")
+                                     and "_rk_kp" not in str(r[3] if len(r) > 3 else "")]
+    rk_kw  = [r for r in non_anchors if "_rk_kw" in str(r[3] if len(r) > 3 else "")]
+    rk_kp  = [r for r in non_anchors if "_rk_kp" in str(r[3] if len(r) > 3 else "")]
+
+    result = normal + rk_kw + rk_kp
+    for pos, row in sorted(anchors, key=lambda x: x[0]):
+        result.insert(pos, row)
+
+    sections[SEP_KOSZTOWE] = result
+    rebuild_sheet(worksheet, sections, blank_rows={})
+    return len(non_anchors)
+
+
 def sort_inne_rk_nieznane(worksheet):
     """
     Sortuje SEP_INNE_RK i SEP_NIEZNANE.
@@ -3983,7 +4011,7 @@ subfolder_name = ""
 btn_wyswietl = btn_szablon = btn_czytaj = btn_sprawdz = btn_upload_ksef = False
 btn_sprzedaz = btn_generuj_pdf = btn_sprawdz_sprzedaz = btn_paruj = False
 btn_status_parowania = btn_refresh_kpkw = btn_show_kpkw = False
-btn_sortuj_inne_rk = btn_usun_puste = btn_podsumowanie = False
+btn_sortuj_inne_rk = btn_usun_puste = btn_podsumowanie = btn_sort_kosztowe = False
 
 if _role == "admin":
     with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True, key="exp_miesiac"):
@@ -4164,6 +4192,10 @@ if _role == "admin":
                 )
                 btn_sprawdz = st.button(
                     "Sprawdz stan faktur kosztowych",
+                    use_container_width=True,
+                )
+                btn_sort_kosztowe = st.button(
+                    "Sortuj i nadaj kolory — Kosztowe",
                     use_container_width=True,
                 )
                 ksef_zip_files = st.file_uploader(
@@ -4630,6 +4662,24 @@ if btn_status_parowania:
             st.error(f"Wystapil blad: {e}")
 
 # ----------------------------------------------------------------
+# AKCJA: Sortuj i nadaj kolory — Kosztowe
+# ----------------------------------------------------------------
+if btn_sort_kosztowe:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds = get_credentials()
+            worksheet = get_or_create_sheet(
+                gspread.authorize(creds).open_by_key(SPREADSHEET_ID), name
+            )
+            with st.spinner("Sortuję i koloruję Kosztowe..."):
+                n = sort_kosztowe(worksheet)
+            st.success(f"Posortowano {n} wierszy Kosztowych (rk_kw → rk_kp na dole).")
+        except Exception as e:
+            st.error(f"Wystapil blad: {e}")
+
 # AKCJA: Sprawdz stan faktur kosztowych
 # ----------------------------------------------------------------
 if btn_sprawdz:
