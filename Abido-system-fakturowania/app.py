@@ -44,6 +44,70 @@ def _norm_date(s):
     return s
 
 
+def _read_col_b_notes(worksheet):
+    """Czyta notatki z kol B dla wierszy z niepustą kol A.
+    Zwraca {col_a_value: note_text}.
+    """
+    try:
+        sid  = worksheet.spreadsheet.id
+        name = worksheet.title
+        resp = worksheet.spreadsheet.client.request(
+            "GET",
+            f"https://sheets.googleapis.com/v4/spreadsheets/{sid}",
+            params={
+                "ranges": f"'{name}'!A:B",
+                "includeGridData": "true",
+                "fields": "sheets.data.rowData.values.note,sheets.data.rowData.values.userEnteredValue",
+            },
+        )
+        rows_data = (resp.json()
+                     .get("sheets", [{}])[0]
+                     .get("data",   [{}])[0]
+                     .get("rowData", []))
+        notes = {}
+        for rd in rows_data:
+            vals = rd.get("values", [])
+            if len(vals) < 2:
+                continue
+            uev   = vals[0].get("userEnteredValue", {})
+            col_a = str(uev.get("stringValue", uev.get("numberValue", ""))).strip()
+            note  = vals[1].get("note", "").strip()
+            if col_a and note:
+                notes[col_a] = note
+        return notes
+    except Exception:
+        return {}
+
+
+def _write_col_b_notes(worksheet, notes, all_new):
+    """Zapisuje notatki do kol B na podstawie nowych pozycji wierszy."""
+    if not notes:
+        return
+    sheet_id = worksheet._properties["sheetId"]
+    col_a_to_rownum = {}
+    for i, row in enumerate(all_new):
+        col_a = str(row[0]).strip() if row else ""
+        if col_a and col_a in notes and col_a not in col_a_to_rownum:
+            col_a_to_rownum[col_a] = i + 1  # 1-based
+    reqs = []
+    for col_a, note in notes.items():
+        row_num = col_a_to_rownum.get(col_a)
+        if row_num:
+            reqs.append({"updateCells": {
+                "range": {
+                    "sheetId":        sheet_id,
+                    "startRowIndex":  row_num - 1,
+                    "endRowIndex":    row_num,
+                    "startColumnIndex": 1,
+                    "endColumnIndex":   2,
+                },
+                "rows":   [{"values": [{"note": note}]}],
+                "fields": "note",
+            }})
+    if reqs:
+        _api(worksheet.spreadsheet.batch_update, {"requests": reqs})
+
+
 def _batch_format_rows(worksheet, row_formats):
     """Wysyła wszystkie formatowania wierszy w jednym API call (batchUpdate).
 
@@ -1220,6 +1284,7 @@ def rebuild_sheet(worksheet, sections, blank_rows=None):
         _blank = [""] * len(HEADER_ROW)
         for _ in range(blank_rows.get(sep, 0)):
             all_new.append(_blank)
+    _col_b_notes = _read_col_b_notes(worksheet)
     _api(worksheet.clear)
     # Reset formatowania — white dla wszystkich POZA status=3 (te zachowuja kolor uzytkownika)
     _white_fmt = {
@@ -1251,6 +1316,7 @@ def rebuild_sheet(worksheet, sections, blank_rows=None):
             _api(worksheet.spreadsheet.batch_update, {"requests": _w_reqs})
     if all_new:
         _api(worksheet.update, "A1", all_new, value_input_option="USER_ENTERED")
+    _write_col_b_notes(worksheet, _col_b_notes, all_new)
     row_fmts = []
     for sep, row_num in sep_row_nums.items():
         row_fmts.append((row_num, {
