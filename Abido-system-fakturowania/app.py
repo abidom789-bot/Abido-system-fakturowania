@@ -1321,6 +1321,14 @@ def apply_sync_logic(existing_rows, new_data, has_address=False, default_status=
     return result, len(verified), len(new_data) - len(verified)
 
 
+def add_empty_rows_to_segment(worksheet, sep, n):
+    """Dodaje n pustych wierszy na koniec wybranego segmentu."""
+    sections = read_all_sections(worksheet)
+    blank = [""] * len(HEADER_ROW)
+    sections[sep].extend([blank[:] for _ in range(n)])
+    rebuild_sheet(worksheet, sections, blank_rows={})
+
+
 def sort_kosztowe(worksheet):
     """
     Sortuje SEP_KOSZTOWE: normalne → _rk_kw → _rk_kp na dole.
@@ -4107,7 +4115,7 @@ subfolder_name = ""
 btn_wyswietl = btn_szablon = btn_czytaj = btn_sprawdz = btn_upload_ksef = False
 btn_sprzedaz = btn_generuj_pdf = btn_sprawdz_sprzedaz = btn_paruj = btn_kolory_sprzedaz = False
 btn_status_parowania = btn_refresh_kpkw = btn_show_kpkw = False
-btn_sortuj_inne_rk = btn_usun_puste = btn_podsumowanie = btn_sort_kosztowe = False
+btn_sortuj_inne_rk = btn_usun_puste = btn_podsumowanie = btn_sort_kosztowe = btn_dodaj_puste = False
 
 if _role == "admin":
     with st.expander("Miesiac — tworzenie faktur i parowanie", expanded=True, key="exp_miesiac"):
@@ -4125,7 +4133,7 @@ if _role == "admin":
             btn_wyswietl = st.button("Wyswietl ex", use_container_width=True)
     
         # Trzy kolumny akcji
-        left_col, mid_col, right_col = st.columns(3)
+        left_col, mid_col, right_col, extra_col = st.columns(4)
     
         @st.dialog("Podgląd KP / KW", width="large")
         def _dialog_podglad_kp_kw(html):
@@ -4358,7 +4366,60 @@ if _role == "admin":
                     "Dodaj podsumowanie segmentów",
                     use_container_width=True,
                 )
-    
+
+        with extra_col:
+            with st.container(border=True):
+                st.markdown("#### Inne funkcje")
+                _SEG_OPTIONS = {
+                    "Faktury kosztowe":            SEP_KOSZTOWE,
+                    "Faktury sprzedazy":           SEP_SPRZEDAZ,
+                    "Wlasciciele i spoldzielnie":  SEP_WLASC,
+                    "Inne raporty kasowe":         SEP_INNE_RK,
+                    "Nieznane / niesparowane":     SEP_NIEZNANE,
+                }
+                sel_segment_label = st.selectbox(
+                    "Segment",
+                    options=list(_SEG_OPTIONS.keys()),
+                    key="sel_segment_puste",
+                )
+                n_puste = st.number_input(
+                    "Liczba pustych wierszy",
+                    min_value=1, max_value=100, value=5, step=1,
+                    key="n_puste_wiersze",
+                )
+                btn_dodaj_puste = st.button(
+                    "Dodaj puste wiersze do segmentu",
+                    use_container_width=True,
+                )
+
+# ----------------------------------------------------------------
+# AKCJA: Dodaj puste wiersze do segmentu
+# ----------------------------------------------------------------
+if btn_dodaj_puste:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu.")
+    else:
+        name = subfolder_name.strip()
+        _seg_options = {
+            "Faktury kosztowe":            SEP_KOSZTOWE,
+            "Faktury sprzedazy":           SEP_SPRZEDAZ,
+            "Wlasciciele i spoldzielnie":  SEP_WLASC,
+            "Inne raporty kasowe":         SEP_INNE_RK,
+            "Nieznane / niesparowane":     SEP_NIEZNANE,
+        }
+        _sep = _seg_options.get(st.session_state.get("sel_segment_puste", ""), SEP_KOSZTOWE)
+        _n   = int(st.session_state.get("n_puste_wiersze", 5))
+        try:
+            creds = get_credentials()
+            worksheet = get_or_create_worksheet(
+                gspread.authorize(creds).open_by_key(SPREADSHEET_ID), name
+            )
+            with st.spinner(f"Dodaje {_n} pustych wierszy..."):
+                add_empty_rows_to_segment(worksheet, _sep, _n)
+            st.success(f"Dodano {_n} pustych wierszy do segmentu '{st.session_state.get('sel_segment_puste')}'.")
+        except Exception as e:
+            st.error(f"Wystapil blad: {e}")
+
 # ----------------------------------------------------------------
 # AKCJA: Sortuj Inne RK
 # ----------------------------------------------------------------
