@@ -4352,6 +4352,7 @@ if _role == "admin":
                 st.markdown("#### Faktury kosztowe")
                 btn_sprawdz = st.button(
                     "Sprawdz stan",
+                    key="btn_sprawdz_kos",
                     use_container_width=True,
                 )
                 btn_czytaj = st.button(
@@ -4379,6 +4380,7 @@ if _role == "admin":
                 st.markdown("#### Faktury sprzedazy")
                 btn_sprawdz_sprzedaz = st.button(
                     "Sprawdz stan",
+                    key="btn_sprawdz_prz",
                     use_container_width=True,
                 )
                 btn_sprzedaz = st.button(
