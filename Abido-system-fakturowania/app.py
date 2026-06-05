@@ -1571,6 +1571,42 @@ def find_bank_file(service, subfolder_name):
     return files[0] if files else None
 
 
+def find_wyciag_file(service, subfolder_name):
+    """Szuka pliku wyciag_MMYYYY.pdf w folderze Listy_operacji_abido."""
+    filename = f"wyciag_{subfolder_name}.pdf"
+    folder = find_subfolder(service, FOLDER_ID, LISTY_OPERACJI_FOLDER_NAME)
+    if not folder:
+        return None
+    query = (
+        f"'{folder['id']}' in parents "
+        f"and name = '{filename}' "
+        "and trashed = false"
+    )
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    files = results.get("files", [])
+    return files[0] if files else None
+
+
+def parse_wyciag_summary(pdf_bytes):
+    """
+    Parsuje stronę 1 wyciągu bankowego PDF.
+    Zwraca (wplywy, wyplywy) jako float lub (None, None) gdy nie znaleziono.
+    """
+    _num = r"[\d\s]+,\d{2}"
+    _pat_in  = re.compile(r"Suma\s+wp[łl]yw[óo]w\s+([\d\s]+,\d{2})", re.IGNORECASE)
+    _pat_out = re.compile(r"Suma\s+wyp[łl]yw[óo]w\s+(-?[\d\s]+,\d{2})", re.IGNORECASE)
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            text = pdf.pages[0].extract_text() or ""
+        m_in  = _pat_in.search(text)
+        m_out = _pat_out.search(text)
+        wplywy  = float(m_in.group(1).replace(" ", "").replace(",", "."))  if m_in  else None
+        wyplywy = float(m_out.group(1).replace(" ", "").replace(",", ".")) if m_out else None
+        return wplywy, wyplywy
+    except Exception:
+        return None, None
+
+
 def parse_bank_statement(xls_bytes):
     """Parsuje XLS wyciagu bankowego. Zwraca liste slownikow transakcji."""
     wb = xlrd.open_workbook(file_contents=xls_bytes)
@@ -2092,6 +2128,7 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
     bank_tx_count = None; bank_tx_sum = None; bank_diag = None
     bank_tx_in_count = None; bank_tx_in_sum = None
     bank_tx_out_count = None; bank_tx_out_sum = None
+    wyciag_in = None; wyciag_out = None; wyciag_found = False
     if service and subfolder_name:
         bank_file = find_bank_file(service, subfolder_name)
         if bank_file:
@@ -2135,6 +2172,14 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
                 elif dupe_sigs[sig] > used_d[sig]:
                     duplicate_txs.append(tx); used_d[sig] += 1
             bank_diag = {"missing": missing_txs, "duplicates": duplicate_txs}
+
+        wyciag_file = find_wyciag_file(service, subfolder_name)
+        if wyciag_file:
+            wyciag_found = True
+            wyciag_bytes = download_pdf(service, wyciag_file["id"])
+            wyciag_in, wyciag_out = parse_wyciag_summary(wyciag_bytes)
+        else:
+            wyciag_found = False
 
     # ── POZYCJA STARTOWA ─────────────────────────────────────────────────────
     all_vals = _api(worksheet.get_all_values)
@@ -2181,6 +2226,13 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         rows.append(["Lista operacji xlsx \u2014 liczba TX", bank_tx_count, bank_tx_sum, E, E, E, E])
         rows.append(["Lista operacji wp\u0142ywy",  bank_tx_in_count,  bank_tx_in_sum,  E, E, E, E])
         rows.append(["Lista operacji wyp\u0142ywy", bank_tx_out_count, bank_tx_out_sum, E, E, E, E])
+    if service and subfolder_name:
+        if wyciag_found:
+            rows.append(["Wyci\u0105g bankowy wp\u0142ywy",  E if wyciag_in  is None else wyciag_in,  E, E, E, E, E])
+            rows.append(["Wyci\u0105g bankowy wyp\u0142ywy", E if wyciag_out is None else wyciag_out, E, E, E, E, E])
+        else:
+            rows.append(["Wyci\u0105g bankowy wp\u0142ywy",  "brak wyci\u0105gu w folderze", E, E, E, E, E])
+            rows.append(["Wyci\u0105g bankowy wyp\u0142ywy", "brak wyci\u0105gu w folderze", E, E, E, E, E])
     rows.append([E] * 7)
     rows.append([E] * 7)
 
