@@ -4009,7 +4009,7 @@ with st.expander("Bilans najemcy", expanded=False, key="exp_bilans_najemcy"):
 # ── Domyslne wartosci przyciskow admina (ksiegowa ich nie widzi) ──
 subfolder_name = ""
 btn_wyswietl = btn_szablon = btn_czytaj = btn_sprawdz = btn_upload_ksef = False
-btn_sprzedaz = btn_generuj_pdf = btn_sprawdz_sprzedaz = btn_paruj = False
+btn_sprzedaz = btn_generuj_pdf = btn_sprawdz_sprzedaz = btn_paruj = btn_kolory_sprzedaz = False
 btn_status_parowania = btn_refresh_kpkw = btn_show_kpkw = False
 btn_sortuj_inne_rk = btn_usun_puste = btn_podsumowanie = btn_sort_kosztowe = False
 
@@ -4223,6 +4223,10 @@ if _role == "admin":
                 )
                 btn_sprawdz_sprzedaz = st.button(
                     "Sprawdz stan faktur sprzedazy",
+                    use_container_width=True,
+                )
+                btn_kolory_sprzedaz = st.button(
+                    "Nadaj kolory — Sprzedaz",
                     use_container_width=True,
                 )
     
@@ -4986,6 +4990,25 @@ if st.session_state.get("run_generuj"):
         st.error(f"Wystapil blad: {e}")
 
 # ----------------------------------------------------------------
+# AKCJA: Nadaj kolory — Sprzedaz
+# ----------------------------------------------------------------
+if btn_kolory_sprzedaz:
+    if not subfolder_name.strip():
+        st.error("Wpisz nazwe podfolderu.")
+    else:
+        name = subfolder_name.strip()
+        try:
+            creds = get_credentials()
+            worksheet = get_or_create_worksheet(
+                gspread.authorize(creds).open_by_key(SPREADSHEET_ID), name
+            )
+            with st.spinner("Nadaje kolory — Sprzedaz..."):
+                sections = read_all_sections(worksheet)
+                rebuild_sheet(worksheet, sections, blank_rows={})
+            st.success("Kolory nadane.")
+        except Exception as e:
+            st.error(f"Wystapil blad: {e}")
+
 # AKCJA: Sprawdz stan faktur sprzedazy
 # ----------------------------------------------------------------
 if btn_sprawdz_sprzedaz:
