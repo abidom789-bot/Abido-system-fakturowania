@@ -2228,11 +2228,11 @@ def add_section_summary(worksheet, service=None, subfolder_name=None):
         rows.append(["Lista operacji wyp\u0142ywy", bank_tx_out_count, bank_tx_out_sum, E, E, E, E])
     if service and subfolder_name:
         if wyciag_found:
-            rows.append(["Wyci\u0105g bankowy wp\u0142ywy",  E if wyciag_in  is None else wyciag_in,  E, E, E, E, E])
-            rows.append(["Wyci\u0105g bankowy wyp\u0142ywy", E if wyciag_out is None else wyciag_out, E, E, E, E, E])
+            rows.append(["Wyci\u0105g bankowy wp\u0142ywy",  E, wyciag_in  if wyciag_in  is not None else E, E, E, E, E])
+            rows.append(["Wyci\u0105g bankowy wyp\u0142ywy", E, wyciag_out if wyciag_out is not None else E, E, E, E, E])
         else:
-            rows.append(["Wyci\u0105g bankowy wp\u0142ywy",  "brak wyci\u0105gu w folderze", E, E, E, E, E])
-            rows.append(["Wyci\u0105g bankowy wyp\u0142ywy", "brak wyci\u0105gu w folderze", E, E, E, E, E])
+            rows.append(["Wyci\u0105g bankowy wp\u0142ywy",  E, "brak wyci\u0105gu w folderze", E, E, E, E])
+            rows.append(["Wyci\u0105g bankowy wyp\u0142ywy", E, "brak wyci\u0105gu w folderze", E, E, E, E])
     rows.append([E] * 7)
     rows.append([E] * 7)
 
