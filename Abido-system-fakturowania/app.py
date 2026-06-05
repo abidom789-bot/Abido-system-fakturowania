@@ -4671,7 +4671,7 @@ if btn_sort_kosztowe:
         name = subfolder_name.strip()
         try:
             creds = get_credentials()
-            worksheet = get_or_create_sheet(
+            worksheet = get_or_create_worksheet(
                 gspread.authorize(creds).open_by_key(SPREADSHEET_ID), name
             )
             with st.spinner("Sortuję i koloruję Kosztowe..."):
